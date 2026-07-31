@@ -1,0 +1,36 @@
+# SQLite temporary files
+*.db-journal
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Database backups
+*.db-journal
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+
+# Windows
+Thumbs.db
+Desktop.ini
