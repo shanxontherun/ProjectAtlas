@@ -101,3 +101,132 @@ def create_job(
         raise sqlite3.Error("Insert succeeded but no job_id was returned")
 
     return int(job_id)
+
+
+def claim_next_pending_job() -> dict[str, Any] | None:
+    """
+    Atomically claim the oldest PENDING job.
+
+    Within a single SQLite transaction:
+      1. Select the oldest row where status = 'PENDING'
+      2. Mark it IN_PROGRESS and set started_at = CURRENT_TIMESTAMP
+
+    Returns the claimed job as a dict, or None when the queue is empty.
+    Payload TEXT is deserialized back into a Python object for the API.
+    """
+    # Oldest first; job_id breaks ties for stable ordering
+    select_query = """
+        SELECT
+            job_id,
+            department,
+            job_type,
+            priority,
+            payload,
+            status
+        FROM jobs
+        WHERE status = 'PENDING'
+        ORDER BY created_at ASC, job_id ASC
+        LIMIT 1
+    """
+
+    update_query = """
+        UPDATE jobs
+        SET
+            status = 'IN_PROGRESS',
+            started_at = CURRENT_TIMESTAMP
+        WHERE job_id = ?
+          AND status = 'PENDING'
+    """
+
+    connection = get_connection()
+    try:
+        # BEGIN IMMEDIATE locks the DB for write so two workers cannot claim
+        # the same job between SELECT and UPDATE.
+        connection.execute("BEGIN IMMEDIATE")
+
+        row = connection.execute(select_query).fetchone()
+        if row is None:
+            connection.rollback()
+            return None
+
+        job_id = int(row["job_id"])
+        cursor = connection.execute(update_query, (job_id,))
+
+        # Guard against a race if another connection somehow claimed it
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return None
+
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    # Deserialize payload JSON text for the response body
+    payload_raw: str | None = row["payload"]
+    payload: Any
+    if payload_raw is None:
+        payload = None
+    else:
+        payload = json.loads(payload_raw)
+
+    return {
+        "job_id": job_id,
+        "department": row["department"],
+        "job_type": row["job_type"],
+        "priority": row["priority"],
+        "payload": payload,
+        "status": "IN_PROGRESS",
+    }
+
+
+def update_job_status(
+    job_id: int,
+    new_status: str,
+    error_message: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Update a job's status and mark it completed.
+
+    Always sets completed_at = CURRENT_TIMESTAMP.
+    When error_message is provided, it is persisted on the row.
+
+    Returns {"job_id", "status"} on success, or None if the job_id
+    does not exist.
+    """
+    # Build SET clause dynamically so error_message is only written when sent
+    set_clauses: list[str] = [
+        "status = ?",
+        "completed_at = CURRENT_TIMESTAMP",
+    ]
+    params: list[Any] = [new_status]
+
+    if error_message is not None:
+        set_clauses.append("error_message = ?")
+        params.append(error_message)
+
+    params.append(job_id)
+
+    query = f"""
+        UPDATE jobs
+        SET {", ".join(set_clauses)}
+        WHERE job_id = ?
+    """
+
+    try:
+        with get_connection() as connection:
+            cursor = connection.execute(query, params)
+            connection.commit()
+            rowcount = cursor.rowcount
+    except sqlite3.Error:
+        raise
+
+    if rowcount == 0:
+        return None
+
+    return {
+        "job_id": job_id,
+        "status": new_status,
+    }
