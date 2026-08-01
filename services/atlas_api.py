@@ -17,6 +17,8 @@ from database import (
     create_job,
     fetch_all_categories,
     update_job_status,
+    insert_research_product,
+    fetch_all_research_products,
 )
 
 app = FastAPI(
@@ -75,6 +77,26 @@ class JobUpdateResponse(BaseModel):
     success: bool
     job_id: int
     status: str
+
+
+
+class ResearchProductCreate(BaseModel):
+    job_id: int
+    category: str
+    product_name: str
+    product_url: str
+    source: str = "Amazon"
+    price: float | None = None
+    currency: str = "USD"
+    rating: float | None = None
+    review_count: int | None = None
+    image_url: str | None = None
+    ai_summary: str | None = None
+
+
+class ResearchProductResponse(BaseModel):
+    success: bool
+    research_product_id: int
 
 
 @app.get("/health")
@@ -184,3 +206,30 @@ def patch_job(job_id: int, body: JobUpdateRequest) -> JobUpdateResponse:
         job_id=updated["job_id"],
         status=updated["status"],
     )
+
+
+@app.post(
+    "/research-products",
+    response_model=ResearchProductResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_research_product(body: ResearchProductCreate) -> ResearchProductResponse:
+    research_product_id = insert_research_product(
+        job_id=body.job_id,
+        category=body.category,
+        product_name=body.product_name,
+        product_url=body.product_url,
+        source=body.source,
+        price=body.price,
+        currency=body.currency,
+        rating=body.rating,
+        review_count=body.review_count,
+        image_url=body.image_url,
+        ai_summary=body.ai_summary,
+    )
+    return ResearchProductResponse(success=True, research_product_id=research_product_id)
+
+
+@app.get("/research-products")
+def get_research_products():
+    return fetch_all_research_products()

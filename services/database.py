@@ -230,3 +230,94 @@ def update_job_status(
         "job_id": job_id,
         "status": new_status,
     }
+
+
+
+def insert_research_product(
+    job_id: int,
+    category: str,
+    product_name: str,
+    product_url: str,
+    source: str = "Amazon",
+    price: float | None = None,
+    currency: str = "USD",
+    rating: float | None = None,
+    review_count: int | None = None,
+    image_url: str | None = None,
+    ai_summary: str | None = None,
+) -> int:
+    """
+    Insert a research product and return its research_product_id.
+    """
+
+    query = """
+        INSERT INTO research_products (
+            job_id,
+            category,
+            product_name,
+            product_url,
+            source,
+            price,
+            currency,
+            rating,
+            review_count,
+            image_url,
+            ai_summary
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            query,
+            (
+                job_id,
+                category,
+                product_name,
+                product_url,
+                source,
+                price,
+                currency,
+                rating,
+                review_count,
+                image_url,
+                ai_summary,
+            ),
+        )
+        connection.commit()
+
+    if cursor.lastrowid is None:
+        raise sqlite3.Error("Insert succeeded but no research_product_id was returned")
+
+    return int(cursor.lastrowid)
+
+
+def fetch_all_research_products() -> list[dict[str, Any]]:
+    """
+    Return every research product ordered by research_product_id.
+    """
+
+    query = """
+        SELECT
+            research_product_id,
+            job_id,
+            category,
+            product_name,
+            product_url,
+            source,
+            price,
+            currency,
+            rating,
+            review_count,
+            image_url,
+            ai_summary,
+            status,
+            created_at
+        FROM research_products
+        ORDER BY research_product_id ASC
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
