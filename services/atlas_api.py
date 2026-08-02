@@ -7,6 +7,8 @@ Exposes health, categories, and jobs endpoints for Project Atlas.
 from __future__ import annotations
 
 import sqlite3
+import logging
+
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
@@ -20,6 +22,13 @@ from database import (
     insert_research_product,
     fetch_all_research_products,
 )
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Atlas Core API",
@@ -131,12 +140,20 @@ def get_categories() -> list[dict[str, Any]]:
 def post_job(body: JobCreateRequest) -> JobCreateResponse:
     """Create a new job row and return its generated job_id."""
     try:
+        logger.info(
+    "Creating job: department=%s job_type=%s priority=%s",
+    body.department,
+    body.job_type,
+    body.priority,
+)
         job_id = create_job(
             department=body.department,
             job_type=body.job_type,
             priority=body.priority,
             payload=body.payload,
         )
+        logger.info("Job created successfully: job_id=%s", job_id)
+        
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except sqlite3.Error as exc:
