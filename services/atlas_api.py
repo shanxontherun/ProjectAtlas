@@ -174,6 +174,7 @@ def get_next_job() -> JobNextResponse:
     """
     try:
         job = claim_next_pending_job()
+        logger.info("Claimed job: %s", job["job_id"] if job else "None")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except sqlite3.Error as exc:
@@ -244,7 +245,13 @@ def create_research_product(body: ResearchProductCreate) -> ResearchProductRespo
         image_url=body.image_url,
         ai_summary=body.ai_summary,
     )
-    return ResearchProductResponse(success=True, research_product_id=research_product_id)
+
+    logger.info("Inserted research product: %s", research_product_id)
+
+    return ResearchProductResponse(
+        success=True,
+        research_product_id=research_product_id,
+    )
 
 
 @app.get("/research-products")
