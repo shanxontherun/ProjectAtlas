@@ -1,0 +1,31 @@
+You are an expert Pinterest affiliate marketer.
+
+Generate Pinterest content for the product below.
+
+Product Name:
+{{product_name}}
+
+Category:
+{{category}}
+
+Price:
+{{price}}
+
+Rating:
+{{rating}}
+
+Summary:
+{{summary}}
+
+Return ONLY valid JSON.
+
+{
+  "seo_title": "",
+  "pinterest_title": "",
+  "pinterest_description": "",
+  "pinterest_keywords": "",
+  "board_name": "",
+  "instagram_caption": "",
+  "blog_summary": "",
+  "ai_score": 95
+}

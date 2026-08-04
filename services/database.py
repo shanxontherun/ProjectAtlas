@@ -627,3 +627,92 @@ def fetch_ai_content() -> list[dict[str, Any]]:
         rows = connection.execute(query).fetchall()
 
     return [dict(row) for row in rows]
+
+def ai_content_exists(research_product_id: int) -> bool:
+    """
+    Return True if AI content already exists for the research product.
+    """
+
+    conn = get_connection()
+
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM ai_content
+        WHERE research_product_id = ?
+        LIMIT 1
+        """,
+        (research_product_id,),
+    ).fetchone()
+
+    conn.close()
+
+    return row is not None
+
+def create_ai_content(
+    research_product_id: int,
+    content: dict,
+) -> int:
+    """
+    Save generated AI content.
+    """
+
+    conn = get_connection()
+
+    cursor = conn.execute(
+        """
+        INSERT INTO ai_content (
+            research_product_id,
+            seo_title,
+            pinterest_title,
+            pinterest_description,
+            pinterest_keywords,
+            board_name,
+            instagram_caption,
+            blog_summary,
+            ai_score,
+            status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'GENERATED')
+        """,
+        (
+            research_product_id,
+            content["seo_title"],
+            content["pinterest_title"],
+            content["pinterest_description"],
+            content["pinterest_keywords"],
+            content["board_name"],
+            content["instagram_caption"],
+            content["blog_summary"],
+            content["ai_score"],
+        ),
+    )
+
+    conn.commit()
+
+    ai_content_id = cursor.lastrowid
+
+    conn.close()
+
+    return ai_content_id
+
+def mark_research_generated(research_product_id: int) -> None:
+    """
+    Mark a research product as AI generated.
+    """
+
+    conn = get_connection()
+
+    conn.execute(
+        """
+        UPDATE research_products
+        SET status = 'GENERATED'
+        WHERE research_product_id = ?
+        """,
+        (research_product_id,),
+    )
+
+    conn.commit()
+
+    conn.close()
+

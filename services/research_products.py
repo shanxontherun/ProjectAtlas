@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from database import get_connection
+from services.database import get_connection
 
 
 def insert_research_product(
@@ -94,6 +94,37 @@ def fetch_all_research_products() -> list[dict[str, Any]]:
         status,
         created_at
     FROM research_products
+    ORDER BY research_product_id ASC
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
+def fetch_pending_research_products() -> list[dict[str, Any]]:
+    """
+    Return research products that have not yet been AI generated.
+    """
+
+    query = """
+    SELECT
+        research_product_id,
+        job_id,
+        category,
+        product_name,
+        product_url,
+        source,
+        price,
+        currency,
+        rating,
+        review_count,
+        image_url,
+        ai_summary,
+        status,
+        created_at
+    FROM research_products
+    WHERE status = 'PENDING'
     ORDER BY research_product_id ASC
     """
 
