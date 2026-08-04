@@ -124,7 +124,7 @@ def fetch_pending_research_products() -> list[dict[str, Any]]:
         status,
         created_at
     FROM research_products
-    WHERE status = 'PENDING'
+    WHERE status = 'NEW'
     ORDER BY research_product_id ASC
     """
 

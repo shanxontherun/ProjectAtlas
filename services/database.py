@@ -21,13 +21,19 @@ def get_connection() -> sqlite3.Connection:
 
     Rows are returned as sqlite3.Row so callers can access columns by name.
     """
+
     if not DATABASE_PATH.exists():
         raise FileNotFoundError(f"Database not found at {DATABASE_PATH}")
 
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=30,
+    )
+
     connection.row_factory = sqlite3.Row
-    # Enforce foreign key constraints for this connection
+
     connection.execute("PRAGMA foreign_keys = ON")
+
     return connection
 
 
@@ -701,18 +707,16 @@ def mark_research_generated(research_product_id: int) -> None:
     Mark a research product as AI generated.
     """
 
-    conn = get_connection()
+    with get_connection() as connection:
 
-    conn.execute(
-        """
-        UPDATE research_products
-        SET status = 'GENERATED'
-        WHERE research_product_id = ?
-        """,
-        (research_product_id,),
-    )
+        connection.execute(
+            """
+            UPDATE research_products
+            SET status = 'GENERATED'
+            WHERE research_product_id = ?
+            """,
+            (research_product_id,),
+        )
 
-    conn.commit()
-
-    conn.close()
+        connection.commit()
 
