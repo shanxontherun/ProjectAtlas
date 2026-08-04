@@ -293,6 +293,7 @@ def insert_research_product(
 
 
 def fetch_all_research_products() -> list[dict[str, Any]]:
+    
     """
     Return every research product ordered by research_product_id.
     """
@@ -321,3 +322,70 @@ def fetch_all_research_products() -> list[dict[str, Any]]:
         rows = connection.execute(query).fetchall()
 
     return [dict(row) for row in rows]
+
+def product_exists(product_key: str) -> bool:
+    """
+    Return True if the product already exists in the registry.
+    """
+
+    query = """
+        SELECT 1
+        FROM product_registry
+        WHERE product_key = ?
+        LIMIT 1
+    """
+
+    with get_connection() as connection:
+        row = connection.execute(query, (product_key,)).fetchone()
+
+    return row is not None
+
+
+def create_product_registry_entry(
+    product_key: str,
+    product_url: str,
+    product_name: str,
+    category: str,
+    source: str = "Amazon",
+    asin: str | None = None,
+    last_job_id: int | None = None,
+) -> int:
+    """
+    Insert a new product into the registry.
+    Returns the generated product_id.
+    """
+
+    query = """
+        INSERT INTO product_registry (
+            product_key,
+            product_url,
+            asin,
+            product_name,
+            category,
+            source,
+            last_job_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            query,
+            (
+                product_key,
+                product_url,
+                asin,
+                product_name,
+                category,
+                source,
+                last_job_id,
+            ),
+        )
+        connection.commit()
+
+    if cursor.lastrowid is None:
+        raise sqlite3.Error(
+            "Insert succeeded but no product_id was returned"
+        )
+
+    return int(cursor.lastrowid)
