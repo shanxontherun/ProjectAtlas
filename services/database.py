@@ -389,3 +389,157 @@ def create_product_registry_entry(
         )
 
     return int(cursor.lastrowid)
+
+def touch_product(
+    product_key: str,
+    last_job_id: int | None = None,
+) -> None:
+    """
+    Update the last_seen_at timestamp for an existing product.
+    """
+
+    query = """
+        UPDATE product_registry
+        SET
+            last_seen_at = CURRENT_TIMESTAMP,
+            last_job_id = ?
+        WHERE product_key = ?
+    """
+
+    with get_connection() as connection:
+        connection.execute(
+            query,
+            (
+                last_job_id,
+                product_key,
+            ),
+        )
+        connection.commit()
+
+
+def create_pin(
+    research_product_id: int,
+    pinterest_title: str | None = None,
+    pinterest_description: str | None = None,
+    pinterest_keywords: str | None = None,
+    board_name: str | None = None,
+    affiliate_url: str | None = None,
+    image_url: str | None = None,
+) -> int:
+    """
+    Insert a new Pinterest queue item.
+
+    Returns the generated pin_id.
+    """
+
+    query = """
+        INSERT INTO pinterest_queue (
+            research_product_id,
+            pinterest_title,
+            pinterest_description,
+            pinterest_keywords,
+            board_name,
+            affiliate_url,
+            image_url
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            query,
+            (
+                research_product_id,
+                pinterest_title,
+                pinterest_description,
+                pinterest_keywords,
+                board_name,
+                affiliate_url,
+                image_url,
+            ),
+        )
+        connection.commit()
+
+    if cursor.lastrowid is None:
+        raise sqlite3.Error(
+            "Insert succeeded but no pin_id was returned"
+        )
+
+    return int(cursor.lastrowid)  
+
+def fetch_pending_pins() -> list[dict[str, Any]]:
+    """
+    Return every Pinterest queue item waiting to be processed.
+    """
+
+    query = """
+        SELECT
+            pin_id,
+            research_product_id,
+            pinterest_title,
+            pinterest_description,
+            pinterest_keywords,
+            board_name,
+            affiliate_url,
+            image_url,
+            status,
+            scheduled_at,
+            published_at,
+            created_at
+        FROM pinterest_queue
+        WHERE status = 'PENDING'
+        ORDER BY created_at ASC
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
+def mark_pin_ready(pin_id: int) -> None:
+    """
+    Mark a Pinterest queue item as READY.
+    """
+
+    query = """
+        UPDATE pinterest_queue
+        SET status = 'READY'
+        WHERE pin_id = ?
+    """
+
+    with get_connection() as connection:
+        connection.execute(query, (pin_id,))
+        connection.commit()   
+
+def mark_pin_published(pin_id: int) -> None:
+    """
+    Mark a Pinterest queue item as PUBLISHED.
+    """
+
+    query = """
+        UPDATE pinterest_queue
+        SET
+            status = 'PUBLISHED',
+            published_at = CURRENT_TIMESTAMP
+        WHERE pin_id = ?
+    """
+
+    with get_connection() as connection:
+        connection.execute(query, (pin_id,))
+        connection.commit()
+
+def mark_pin_failed(pin_id: int) -> None:
+    """
+    Mark a Pinterest queue item as FAILED.
+    """
+
+    query = """
+        UPDATE pinterest_queue
+        SET status = 'FAILED'
+        WHERE pin_id = ?
+    """
+
+    with get_connection() as connection:
+        connection.execute(query, (pin_id,))
+        connection.commit()
+           

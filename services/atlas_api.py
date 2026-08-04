@@ -21,6 +21,9 @@ from database import (
     update_job_status,
     insert_research_product,
     fetch_all_research_products,
+    product_exists,
+    create_product_registry_entry,
+    touch_product,
 )
 
 logging.basicConfig(
@@ -232,6 +235,26 @@ def patch_job(job_id: int, body: JobUpdateRequest) -> JobUpdateResponse:
     status_code=status.HTTP_201_CREATED,
 )
 def create_research_product(body: ResearchProductCreate) -> ResearchProductResponse:
+
+    # For now we use the product URL as the unique product key.
+    # Later we'll replace this with the Amazon ASIN.
+    product_key = body.product_url
+
+    if product_exists(product_key):
+        touch_product(
+            product_key=product_key,
+            last_job_id=body.job_id,
+        )
+    else:
+        create_product_registry_entry(
+            product_key=product_key,
+            product_url=body.product_url,
+            product_name=body.product_name,
+            category=body.category,
+            source=body.source,
+            last_job_id=body.job_id,
+        )
+
     research_product_id = insert_research_product(
         job_id=body.job_id,
         category=body.category,
