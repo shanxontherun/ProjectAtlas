@@ -1,8 +1,0 @@
-2026/08/05-06:32:06.772 3cac Reusing MANIFEST C:\ProjectAtlas\browser\profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/08/05-06:32:06.785 3cac Recovering log #4
-2026/08/05-06:32:06.790 3cac Reusing old log C:\ProjectAtlas\browser\profile\Default\Local Storage\leveldb/000004.log 
-2026/08/05-06:33:06.823 29c8 Level-0 table #7: started
-2026/08/05-06:33:06.835 29c8 Level-0 table #7: 42096 bytes OK
-2026/08/05-06:33:06.838 29c8 Delete type=0 #4
-2026/08/05-06:33:30.006 3cac Level-0 table #9: started
-2026/08/05-06:33:30.017 3cac Level-0 table #9: 70039 bytes OK
