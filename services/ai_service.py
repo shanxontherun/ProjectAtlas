@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import requests
 from dotenv import load_dotenv
+from services.database import get_connection
 
 load_dotenv()
 
@@ -130,37 +131,138 @@ def parse_json_response(content: str) -> dict:
 
     return json.loads(content)
 
-def generate_ai_content(product: dict) -> dict:
+def fetch_generated_ai_content() -> list[dict[str, Any]]:
     """
-    Generate AI content for a research product.
+    Return all AI content that is ready to be routed.
     """
 
-    prompt = build_prompt(product)
+    query = """
+    SELECT
+        ac.ai_content_id,
+        rp.category AS category_slug,
+        rp.product_url,
+        rp.image_url
+    FROM ai_content ac
+    INNER JOIN research_products rp
+        ON ac.research_product_id = rp.research_product_id
+    WHERE rp.status = 'GENERATED'
+    ORDER BY ac.ai_content_id
+    """
 
-    response = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers=get_headers(),
-        json={
-            "model": MODEL,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            "temperature": 0.3,
-            "stream": False,
-        },
-        timeout=REQUEST_TIMEOUT,
-    )
+    with get_connection() as connection:
+        rows = connection.execute(query).fetchall()
 
-    response.raise_for_status()
+    products = []
 
-    data = response.json()
+    for row in rows:
+        product = dict(row)
 
-    if "choices" not in data:
-        raise RuntimeError(f"Unexpected AI response: {data}")
+        product["category_slug"] = (
+            product["category_slug"]
+            .strip()
+            .lower()
+            .replace(" ", "_")
+        )
 
-    content = data["choices"][0]["message"]["content"]
-    
-    return parse_json_response(content)
+        products.append(product)
+
+    return products
+
+def fetch_pending_validation() -> list[dict[str, Any]]:
+    """
+    Return AI content waiting for validation.
+    """
+
+    query = """
+    SELECT *
+    FROM ai_content
+    WHERE
+        status = 'GENERATED'
+        AND validation_status = 'PENDING'
+    ORDER BY ai_content_id
+    """
+
+    with get_connection() as connection:
+
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
+def mark_validation_valid(
+    ai_content_id: int,
+) -> None:
+    """
+    Mark AI content as VALID.
+    """
+
+    query = """
+    UPDATE ai_content
+    SET
+        validation_status='VALID',
+        validation_error=NULL
+    WHERE ai_content_id=?
+    """
+
+    with get_connection() as connection:
+
+        connection.execute(
+            query,
+            (ai_content_id,),
+        )
+
+        connection.commit()
+
+def mark_validation_invalid(
+    ai_content_id: int,
+    error: str,
+) -> None:
+    """
+    Mark AI content as INVALID.
+    """
+
+    query = """
+    UPDATE ai_content
+    SET
+        validation_status='INVALID',
+        validation_error=?
+    WHERE ai_content_id=?
+    """
+
+    with get_connection() as connection:
+
+        connection.execute(
+            query,
+            (
+                error,
+                ai_content_id,
+            ),
+        )
+
+        connection.commit()
+
+def fetch_validated_ai_content() -> list[dict[str, Any]]:
+    """
+    Return AI content that passed validation.
+    """
+
+    query = """
+    SELECT
+        ac.ai_content_id,
+        LOWER(REPLACE(rp.category, ' ', '_')) AS category_slug,
+        rp.product_url,
+        rp.image_url
+    FROM ai_content ac
+    INNER JOIN research_products rp
+        ON ac.research_product_id = rp.research_product_id
+    WHERE
+        ac.status='GENERATED'
+        AND ac.validation_status='VALID'
+    ORDER BY ac.ai_content_id
+    """
+
+    with get_connection() as connection:
+
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
