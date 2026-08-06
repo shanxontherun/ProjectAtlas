@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "id": "home_02",
+    "version": "1.0.0",
+    "platforms": ["pinterest", "instagram"],
+    "description": "Full-featured product pin with logo, title, subtitle, product image, rating, price, call to action and watermark."
+  },
+  "canvas": {
+    "width": 1000,
+    "height": 1500,
+    "background": "#FFFFFF"
+  },
+  "brand": "atlas",
+  "data_map": {
+    "logo": "logo",
+    "title": "pinterest_title",
+    "subtitle": "pinterest_description",
+    "rating": "rating",
+    "price": "price",
+    "cta": "cta"
+  },
+  "zones": [
+    {
+      "name": "logo",
+      "type": "logo",
+      "bounds": {
+        "x": 80,
+        "y": 60,
+        "width": 200,
+        "height": 60
+      },
+      "style": {
+        "fit": "contain"
+      }
+    },
+    {
+      "name": "title",
+      "type": "text",
+      "bounds": {
+        "x": 80,
+        "y": 160,
+        "width": 840,
+        "height": 120
+      },
+      "style": {
+        "font_role": "title",
+        "color_role": "text"
+      }
+    },
+    {
+      "name": "subtitle",
+      "type": "text",
+      "bounds": {
+        "x": 80,
+        "y": 280,
+        "width": 840,
+        "height": 60
+      },
+      "style": {
+        "font_role": "body",
+        "color_role": "muted"
+      }
+    },
+    {
+      "name": "product_image",
+      "type": "image",
+      "bounds": {
+        "x": 100,
+        "y": 380,
+        "width": 800,
+        "height": 800
+      },
+      "style": {
+        "fit": "cover"
+      }
+    },
+    {
+      "name": "rating",
+      "type": "rating",
+      "bounds": {
+        "x": 80,
+        "y": 1240,
+        "width": 400,
+        "height": 60
+      },
+      "style": {
+        "font_role": "badge",
+        "color_role": "accent"
+      }
+    },
+    {
+      "name": "price",
+      "type": "price",
+      "bounds": {
+        "x": 480,
+        "y": 1240,
+        "width": 440,
+        "height": 60
+      },
+      "style": {
+        "font_role": "title",
+        "color_role": "primary",
+        "align": "right"
+      }
+    },
+    {
+      "name": "cta",
+      "type": "text",
+      "bounds": {
+        "x": 80,
+        "y": 1330,
+        "width": 840,
+        "height": 60
+      },
+      "style": {
+        "font_role": "badge",
+        "color_role": "primary"
+      }
+    },
+    {
+      "name": "watermark",
+      "type": "watermark",
+      "bounds": {
+        "x": 0,
+        "y": 1420,
+        "width": 1000,
+        "height": 60
+      }
+    }
+  ],
+  "output": {
+    "filename_pattern": "{template_id}_{variant}",
+    "format": "png",
+    "quality": 95,
+    "variant": "default"
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "meta": {
+    "id": "home_01",
+    "version": "1.0.0",
+    "platforms": ["pinterest", "instagram"],
+    "description": "Simple product pin with headline, product image, rating badge and call to action."
+  },
+  "canvas": {
+    "width": 1000,
+    "height": 1500,
+    "background": "#FFFFFF"
+  },
+  "brand": "atlas",
+  "data_map": {
+    "headline": "pinterest_title",
+    "description": "pinterest_description",
+    "rating": "rating",
+    "price": "price",
+    "cta": "cta"
+  },
+  "zones": [
+    {
+      "name": "headline",
+      "type": "text",
+      "bounds": {
+        "x": 80,
+        "y": 80,
+        "width": 840,
+        "height": 160
+      },
+      "style": {
+        "font_role": "title",
+        "color_role": "text"
+      }
+    },
+    {
+      "name": "product_image",
+      "type": "image",
+      "bounds": {
+        "x": 100,
+        "y": 300,
+        "width": 800,
+        "height": 800
+      },
+      "style": {
+        "fit": "cover"
+      }
+    },
+    {
+      "name": "rating",
+      "type": "rating",
+      "bounds": {
+        "x": 80,
+        "y": 1160,
+        "width": 400,
+        "height": 60
+      },
+      "style": {
+        "font_role": "badge",
+        "color_role": "accent"
+      }
+    },
+    {
+      "name": "cta",
+      "type": "text",
+      "bounds": {
+        "x": 80,
+        "y": 1260,
+        "width": 840,
+        "height": 60
+      },
+      "style": {
+        "font_role": "badge",
+        "color_role": "primary"
+      }
+    },
+    {
+      "name": "watermark",
+      "type": "watermark",
+      "bounds": {
+        "x": 0,
+        "y": 1420,
+        "width": 1000,
+        "height": 60
+      }
+    }
+  ],
+  "output": {
+    "filename_pattern": "{template_id}_{variant}",
+    "format": "png",
+    "quality": 95,
+    "variant": "default"
+  }
+}

@@ -95,3 +95,7 @@ htmlcov/
 
 dist/
 build/
+
+# Generated creative outputs
+creative/generated/*.png
+!creative/generated/.gitkeep

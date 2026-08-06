@@ -1,0 +1,25 @@
+{
+  "id": "atlas",
+  "name": "Atlas Affiliate",
+  "palette": {
+    "primary": "#C21F3A",
+    "accent": "#F7B32B",
+    "background": "#FFFFFF",
+    "text": "#222222",
+    "muted": "#666666"
+  },
+  "fonts": {
+    "title": "Inter-Bold",
+    "body": "Inter-Regular",
+    "badge": "Inter-SemiBold"
+  },
+  "logo": "logos/atlas.png",
+  "watermark": {
+    "text": "@atlas_pins",
+    "position": "bottom-right"
+  },
+  "overlays": {
+    "scrim_color": "#000000",
+    "scrim_opacity": 0.35
+  }
+}

@@ -549,62 +549,6 @@ def mark_pin_failed(pin_id: int) -> None:
         connection.execute(query, (pin_id,))
         connection.commit()
            
-def create_ai_content(
-    research_product_id: int,
-    seo_title: str | None = None,
-    pinterest_title: str | None = None,
-    pinterest_description: str | None = None,
-    pinterest_keywords: str | None = None,
-    board_name: str | None = None,
-    instagram_caption: str | None = None,
-    blog_summary: str | None = None,
-    ai_score: int | None = None,
-) -> int:
-    """
-    Insert AI-generated content for a research product.
-
-    Returns the generated ai_content_id.
-    """
-
-    query = """
-        INSERT INTO ai_content (
-            research_product_id,
-            seo_title,
-            pinterest_title,
-            pinterest_description,
-            pinterest_keywords,
-            board_name,
-            instagram_caption,
-            blog_summary,
-            ai_score
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
-
-    with get_connection() as connection:
-        cursor = connection.execute(
-            query,
-            (
-                research_product_id,
-                seo_title,
-                pinterest_title,
-                pinterest_description,
-                pinterest_keywords,
-                board_name,
-                instagram_caption,
-                blog_summary,
-                ai_score,
-            ),
-        )
-        connection.commit()
-
-    if cursor.lastrowid is None:
-        raise sqlite3.Error(
-            "Insert succeeded but no ai_content_id was returned"
-        )
-
-    return int(cursor.lastrowid)
-
 def fetch_ai_content() -> list[dict[str, Any]]:
     """
     Return every AI content record.

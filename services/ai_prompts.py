@@ -9,6 +9,25 @@ from __future__ import annotations
 import json
 
 
+# --------------------------------------------------
+# Pinterest Content Schema
+# --------------------------------------------------
+#
+# Contract for the JSON object the Pinterest prompt must return.
+# Mirrors the columns of the ai_content table.
+
+REQUIRED_CONTENT_FIELDS: tuple[str, ...] = (
+    "seo_title",
+    "pinterest_title",
+    "pinterest_description",
+    "pinterest_keywords",
+    "board_name",
+    "instagram_caption",
+    "blog_summary",
+    "ai_score",
+)
+
+
 SYSTEM_PROMPT = """
 You are Atlas AI.
 

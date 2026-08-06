@@ -9,8 +9,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
+
 import requests
 from dotenv import load_dotenv
+
+from services.ai_client import AIClient
+from services.ai_prompts import REQUIRED_CONTENT_FIELDS, SYSTEM_PROMPT
 from services.database import get_connection
 
 load_dotenv()
@@ -130,6 +135,95 @@ def parse_json_response(content: str) -> dict:
     content = content.strip()
 
     return json.loads(content)
+
+
+# --------------------------------------------------
+# AI Content Generation
+# --------------------------------------------------
+
+
+class AIValidationError(Exception):
+    """
+    Raised when AI-generated content fails validation.
+
+    Indicates the AI response is malformed or missing required
+    fields, as opposed to a transport or request failure from
+    the AI client.
+    """
+
+
+def validate_content_fields(
+    content: dict[str, Any],
+) -> None:
+    """
+    Validate that all required content fields are present.
+
+    None, "" and whitespace-only values are treated as missing.
+
+    Raises:
+        AIValidationError:
+            If any required field is missing or empty.
+    """
+
+    missing: list[str] = []
+
+    for field in REQUIRED_CONTENT_FIELDS:
+
+        value = content.get(field)
+
+        if value is None:
+            missing.append(field)
+
+        elif isinstance(value, str) and not value.strip():
+            missing.append(field)
+
+    if missing:
+        raise AIValidationError(
+            "AI response missing required fields: "
+            f"{', '.join(missing)}"
+        )
+
+
+def generate_ai_content(
+    product: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Generate Pinterest AI content for a research product.
+
+    Builds the prompt with the Pinterest template, calls the AI
+    client, parses the JSON response and validates required fields.
+
+    Pure business function: it never reads or writes the database.
+
+    Returns:
+        Content dict matching the ai_content table columns.
+
+    Raises:
+        AIValidationError:
+            If the AI response is not a JSON object or is missing
+            required fields.
+    """
+
+    prompt = build_prompt(product)
+
+    client = AIClient()
+
+    response = client.generate(
+        prompt=prompt,
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+    content = parse_json_response(response)
+
+    if not isinstance(content, dict):
+        raise AIValidationError(
+            "AI response is not a JSON object."
+        )
+
+    validate_content_fields(content)
+
+    return content
+
 
 def fetch_generated_ai_content() -> list[dict[str, Any]]:
     """
