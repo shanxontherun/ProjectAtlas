@@ -1,0 +1,81 @@
+import {
+  BarChart3,
+  FileText,
+  ImageIcon,
+  LayoutDashboard,
+  Package,
+  Send,
+  Settings,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+
+export type NavItem = {
+  title: string;
+  href: string;
+  icon: LucideIcon;
+  description: string;
+};
+
+export const navItems: NavItem[] = [
+  {
+    title: "Products",
+    href: "/products",
+    icon: Package,
+    description:
+      "Discover, score, and manage your affiliate product catalog.",
+  },
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    description:
+      "A live overview of your business performance across channels.",
+  },
+  {
+    title: "Content",
+    href: "/content",
+    icon: FileText,
+    description:
+      "Generate and review AI content for your products.",
+  },
+  {
+    title: "Creatives",
+    href: "/creatives",
+    icon: ImageIcon,
+    description:
+      "Design platform-ready creative assets for every product.",
+  },
+  {
+    title: "Publishing",
+    href: "/publishing",
+    icon: Send,
+    description:
+      "Schedule and publish content to your connected channels.",
+  },
+  {
+    title: "Analytics",
+    href: "/analytics",
+    icon: BarChart3,
+    description:
+      "Track performance, clicks, and revenue in one place.",
+  },
+  {
+    title: "Accounts",
+    href: "/accounts",
+    icon: Users,
+    description:
+      "Manage your connected platform accounts and boards.",
+  },
+  {
+    title: "Settings",
+    href: "/settings",
+    icon: Settings,
+    description:
+      "Configure your Atlas workspace, team, and preferences.",
+  },
+];
+
+export function getNavItem(href: string) {
+  return navItems.find((item) => item.href === href);
+}
