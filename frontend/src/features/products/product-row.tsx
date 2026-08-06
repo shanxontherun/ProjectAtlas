@@ -44,14 +44,14 @@ export function ProductRow({ product, onSelect }: ProductRowProps) {
           className="size-3.5 fill-amber-500/90 text-amber-500/90 dark:fill-amber-400/90 dark:text-amber-400/90"
           aria-hidden="true"
         />
-        <span className="font-medium text-foreground">
+        <span className="font-medium tabular-nums text-foreground">
           {product.rating.toFixed(1)}
         </span>
         <span aria-hidden="true">·</span>
         <span>{formatCompactNumber(product.reviewCount)}</span>
       </div>
 
-      <div className="hidden text-sm font-medium md:block">
+      <div className="hidden text-sm font-medium tabular-nums md:block">
         {formatCurrency(product.price, product.currency)}
       </div>
 
@@ -59,8 +59,16 @@ export function ProductRow({ product, onSelect }: ProductRowProps) {
         <HealthBadge health={product.health} />
       </div>
 
-      <div className="hidden md:block">
-        <ProgressBar value={product.progress} showValue={false} />
+      <div className="hidden min-w-0 md:block">
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="truncate text-muted-foreground">Workflow</span>
+          <span className="font-medium tabular-nums text-foreground">
+            {product.progress}%
+          </span>
+        </div>
+        <div className="mt-1.5">
+          <ProgressBar value={product.progress} showValue={false} />
+        </div>
       </div>
 
       <div className="flex flex-col items-end gap-2">

@@ -76,6 +76,22 @@ export const navItems: NavItem[] = [
   },
 ];
 
+export type NavGroup = {
+  label: string;
+  items: NavItem[];
+};
+
+export const navGroups: NavGroup[] = [
+  {
+    label: "Workspace",
+    items: navItems.slice(0, 5),
+  },
+  {
+    label: "Manage",
+    items: navItems.slice(5),
+  },
+];
+
 export function getNavItem(href: string) {
   return navItems.find((item) => item.href === href);
 }

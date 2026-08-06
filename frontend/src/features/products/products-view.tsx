@@ -67,7 +67,7 @@ export function ProductsView() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <ProductToolbar
         search={search}
         onSearchChange={setSearch}

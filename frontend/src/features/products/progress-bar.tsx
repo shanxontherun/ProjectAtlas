@@ -4,6 +4,7 @@ type ProgressBarProps = {
   value: number;
   showValue?: boolean;
   label?: string;
+  thick?: boolean;
   className?: string;
 };
 
@@ -11,6 +12,7 @@ export function ProgressBar({
   value,
   showValue = true,
   label,
+  thick = false,
   className,
 }: ProgressBarProps) {
   const clamped = Math.min(100, Math.max(0, value));
@@ -28,7 +30,10 @@ export function ProgressBar({
         aria-valuemax={100}
         aria-valuenow={clamped}
         aria-label={label ?? "Workflow progress"}
-        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+        className={cn(
+          "min-w-0 flex-1 overflow-hidden rounded-full bg-muted",
+          thick ? "h-2.5" : "h-2",
+        )}
       >
         <div
           className="h-full rounded-full bg-foreground transition-[width] duration-500 ease-out"

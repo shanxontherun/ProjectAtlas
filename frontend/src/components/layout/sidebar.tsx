@@ -30,7 +30,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           collapsed ? "justify-center px-2" : "gap-2.5 px-4",
         )}
       >
-        <AtlasLogo className="size-6 shrink-0" />
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground">
+          <AtlasLogo className="size-4 shrink-0" />
+        </span>
         {!collapsed && (
           <span className="truncate text-[15px] font-semibold tracking-tight">
             Atlas

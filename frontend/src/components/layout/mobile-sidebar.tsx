@@ -25,7 +25,9 @@ export function MobileSidebar() {
       <SheetContent side="left" className="w-72 bg-sidebar p-0">
         <SheetTitle className="sr-only">Atlas navigation</SheetTitle>
         <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
-          <AtlasLogo className="size-6 shrink-0" />
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground">
+            <AtlasLogo className="size-4 shrink-0" />
+          </span>
           <span className="truncate text-[15px] font-semibold tracking-tight">
             Atlas
           </span>

@@ -46,13 +46,13 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
             className="size-3.5 fill-amber-500/90 text-amber-500/90 dark:fill-amber-400/90 dark:text-amber-400/90"
             aria-hidden="true"
           />
-          <span className="font-medium text-foreground">
+          <span className="font-medium tabular-nums text-foreground">
             {product.rating.toFixed(1)}
           </span>
           <span aria-hidden="true">·</span>
           <span>{formatCompactNumber(product.reviewCount)} reviews</span>
           <span aria-hidden="true">·</span>
-          <span className="font-medium text-foreground">
+          <span className="font-medium tabular-nums text-foreground">
             {formatCurrency(product.price, product.currency)}
           </span>
         </div>
@@ -60,7 +60,7 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
         <div className="mt-auto flex flex-col gap-1.5 pt-1">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">{stage.label}</span>
-            <span className="tabular-nums text-muted-foreground">
+            <span className="font-medium tabular-nums text-foreground">
               {product.progress}%
             </span>
           </div>

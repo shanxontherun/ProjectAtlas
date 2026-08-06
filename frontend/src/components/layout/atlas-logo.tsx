@@ -1,6 +1,9 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 export function AtlasLogo({ className }: { className?: string }) {
+  const gradientId = useId();
+
   return (
     <svg
       viewBox="0 0 24 24"
@@ -8,7 +11,13 @@ export function AtlasLogo({ className }: { className?: string }) {
       aria-hidden="true"
       className={cn("size-6", className)}
     >
-      <circle cx="12" cy="12" r="4.5" fill="currentColor" />
+      <defs>
+        <linearGradient id={gradientId} x1="8" y1="8" x2="17" y2="17">
+          <stop offset="0%" stopColor="var(--sidebar-primary)" />
+          <stop offset="100%" stopColor="var(--chart-1)" />
+        </linearGradient>
+      </defs>
+      <circle cx="12" cy="12" r="4.5" fill={`url(#${gradientId})`} />
       <ellipse
         cx="12"
         cy="12"
