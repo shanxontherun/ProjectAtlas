@@ -22,7 +22,7 @@ export function ProductImage({
 }: ProductImageProps) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
+  if (failed || !src) {
     return (
       <div
         role="img"

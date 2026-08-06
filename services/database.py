@@ -319,7 +319,8 @@ def fetch_all_research_products() -> list[dict[str, Any]]:
             image_url,
             ai_summary,
             status,
-            created_at
+            created_at,
+            asin
         FROM research_products
         ORDER BY research_product_id ASC
     """

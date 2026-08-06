@@ -2,6 +2,126 @@
 
 ---
 
+# 2026-08-06 (ATLAS-026)
+
+## Goal
+
+Replace the Products page mock catalog with real FastAPI backend data —
+keeping the page pixel-identical (skeletons on load, friendly error/empty
+states, no spinners). Products module only; no AI Studio, Creative Studio,
+Publishing, Analytics, or Pinterest API changes.
+
+## Accomplished
+
+- Verified backend: ran migrations to create `database/atlas.db` (gitignored),
+  started `services/atlas_api.py` (uvicorn, port 8000), and seeded 8 research
+  products through the real `POST /research-products` API across every
+  pipeline status (NEW / GENERATED / QUEUED / PUBLISHED / FAILED)
+- Reused the existing `GET /research-products` endpoint — no parallel API.
+  Extended it minimally: added `asin` to `fetch_all_research_products`
+  (the Products UI renders ASIN) and added 503/500 error mapping consistent
+  with `/categories`
+- Frontend: added `product-api.ts` (typed `ResearchProductRow`,
+  `mapResearchProduct`, `fetchProducts`) and `use-products.ts` (TanStack
+  Query `useProducts`, reusing the existing QueryClient)
+- `products-view.tsx` now renders skeletons from `isLoading`, a friendly
+  error state with "Try again" (new `error` variant of `ProductEmptyState`
+  reusing `EmptyState`), and keeps the existing empty/results states;
+  filtering/sorting/grid/list/drawer untouched. Mock `MOCK_PRODUCTS` kept —
+  content/creatives/publishing still import it for imagery
+- `ProductImage` renders its icon fallback when `image_url` is null;
+  `next.config.ts` allows Amazon CDN hostnames so real product images work
+- Verified: `npm run lint` 0/0, `npm run build` (12 static routes) clean,
+  API payloads, and Playwright 13/13 DOM/layout/flow/state checks
+  (skeleton → grid, 8-of-8 footer, category/search filters, health badges,
+  drawer with backend ASIN, list view, error state, empty state); saved
+  screenshots (desktop dark/light, mobile dark)
+- Added CHANGELOG 0.7.0 entry, this journal entry, and
+  `docs/ATLAS-026-deliverables.md`
+
+## Lessons
+
+- Next.js dev (16.x) enforces `allowedDevOrigins`: a browser requesting
+  `127.0.0.1:3000` directly sends an `Origin` header and gets 403 on JS
+  chunks (curl passes because it sends none). Verify through the
+  `*.monkeycode-ai.live` preview URL, matching the ATLAS-025 workflow.
+- TanStack Query resolves so fast against a local backend that the skeleton
+  state is invisible; delay the API route in Playwright to assert it.
+- `aria-hidden` root + `animate-pulse` live on different elements in
+  `ProductSkeleton`; match `div.animate-pulse`, not the combined selector.
+
+## Next Session
+
+- Wire Content (AI Studio) and Dashboard to real backend data via TanStack
+  Query, following the `product-api.ts` pattern.
+- Decide product source-of-truth once research → ai → creative → publishing
+  workers update `research_products.status`; progress/health derivation can
+  then move server-side if the UI stage mapping grows.
+- Reconcile the duplicate `fetch_all_research_products` in
+  `services/research_products.py` vs `services/database.py`.
+
+---
+
+# 2026-08-06 (ATLAS-025)
+
+## Goal
+
+Deliver the ATLAS-025 Publishing Center MVP — a UI-only "mission control"
+that answers what is ready to publish, where it will go, when it publishes,
+and what has already been published. Replaces the Publishing placeholder.
+
+## Accomplished
+
+- Reviewed the ATLAS-023 AI Studio / ATLAS-024 Creative Studio as quality
+  benchmarks; reused `MetricCard`, `SectionCard`, `ProductImage`,
+  `CreativePin` + `TEMPLATE_BY_ID`, `ContentStatusBadge` conventions, and
+  existing UI primitives (no new primitives, no new dependencies)
+- Built `frontend/src/features/publishing/`: types + publishing-utils +
+  isolated mock data (5 boards, 5 queue items, 5 history items) that reuse
+  `MOCK_PRODUCTS` for imagery and creative template data for pin previews
+- Header + "Review Creatives" deep-link back to `/creatives` (handoff)
+- Four summary cards map 1:1 to the four questions
+- Publishing Queue (left): ready/scheduled items with board + status badge
+- Publish Console (right): pin preview, board picker (5 selectable cards),
+  Publish now / Schedule segmented control, `datetime-local` picker with
+  future-time validation, and Publish Now / Schedule actions
+- Published History: upcoming scheduled pins first, then recent
+  published/failed; relative timestamps, board names, copy-link action
+- Publish Now moves the item to history as "Published"; Schedule as
+  "Scheduled"; queue count, history, and summary counts update live
+- Skeleton (650ms), empty states, responsive (2-col on lg+, stack below),
+  dark/light themes; `npm run lint` + `npm run build` clean
+- Playwright: 37/37 DOM/layout/flow/responsive checks pass; screenshots
+  saved (desktop dark, scheduled state, light, tablet, mobile)
+- Added CHANGELOG 0.6.0 entry, this journal entry, and
+  `docs/ATLAS-025-deliverables.md`
+
+## Lessons
+
+- React's `react-hooks/purity` lint flags `Date.now()` during render but
+  accepts `new Date()` (the dashboard's `welcome-header` precedent). Used a
+  render-time `new Date()` for schedule validation; actions call `Date.now()`
+  only inside handlers.
+- Mock data isolation + reuse: importing `TEMPLATE_BY_ID` (template styling)
+  and `makeHeadline` (creative copy) from the creatives feature is the same
+  cross-feature reuse the codebase already applies with `MOCK_PRODUCTS`; no
+  creative/template data was duplicated.
+- History ordering: a single `eventAt`-desc sort put a far-future scheduled
+  pin above the just-published pin. Sorting upcoming scheduled pins (soonest
+  first) before recent published pins reads better for mission control.
+- `getByRole('button', { name: 'Schedule', exact: true })` is ambiguous —
+  the timing segmented control and the action button both match. Scoped to
+  `[data-slot="button"]` (the ui Button) to target the action.
+
+## Next Session
+
+- Wire Publishing Center to a real hook (TanStack Query + `/api/publishing`);
+  `PublishItem`/`Publication` types already shape a plausible API payload.
+- Replace the mock board picker with real Pinterest boards from Accounts.
+- Surface per-pin analytics from the Live/Published state into Analytics.
+
+---
+
 # 2026-08-06 (ATLAS-023)
 
 ## Goal

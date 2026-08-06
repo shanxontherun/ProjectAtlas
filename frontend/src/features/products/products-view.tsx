@@ -1,12 +1,12 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { MOCK_PRODUCTS } from "./mock-data";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   filterAndSortProducts,
   getCategories,
   type SortKey,
 } from "./product-utils";
+import { useProducts } from "./use-products";
 import { ProductDrawer } from "./product-drawer";
 import { ProductEmptyState } from "./product-empty-state";
 import { ProductGrid } from "./product-grid";
@@ -32,25 +32,26 @@ export function ProductsView() {
   const [sort, setSort] = useState<SortKey>(DEFAULT_FILTERS.sort);
   const [view, setView] = useState<ProductsViewMode>("grid");
   const [selected, setSelected] = useState<Product | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 650);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const {
+    data: allProducts = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useProducts();
 
-  const categories = useMemo(() => getCategories(MOCK_PRODUCTS), []);
+  const categories = useMemo(() => getCategories(allProducts), [allProducts]);
   const deferredQuery = useDeferredValue(search);
 
   const products = useMemo(
     () =>
-      filterAndSortProducts(MOCK_PRODUCTS, {
+      filterAndSortProducts(allProducts, {
         query: deferredQuery,
         category,
         stage,
         sort,
       }),
-    [deferredQuery, category, stage, sort],
+    [allProducts, deferredQuery, category, stage, sort],
   );
 
   const hasActiveFilters =
@@ -82,12 +83,14 @@ export function ProductsView() {
         onViewChange={setView}
       />
 
-      {loading ? (
+      {isLoading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <ProductSkeleton key={index} />
           ))}
         </div>
+      ) : isError ? (
+        <ProductEmptyState variant="error" onRetry={refetch} />
       ) : products.length === 0 ? (
         <ProductEmptyState
           variant={hasActiveFilters ? "no-results" : "no-products"}
@@ -99,9 +102,9 @@ export function ProductsView() {
         <ProductList products={products} onSelect={setSelected} />
       )}
 
-      {!loading && products.length > 0 && (
+      {!isLoading && !isError && products.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Showing {products.length} of {MOCK_PRODUCTS.length} products
+          Showing {products.length} of {allProducts.length} products
         </p>
       )}
 

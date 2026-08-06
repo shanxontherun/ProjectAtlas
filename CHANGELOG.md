@@ -6,6 +6,55 @@ This project follows semantic versioning.
 
 ---
 
+## [0.7.0] - 2026-08-06
+
+### Changed
+- ATLAS-026: Products page now loads real backend data instead of the mock
+  catalog
+- `GET /research-products` is the single source for the Products page;
+  TanStack Query (`useProducts`) fetches it through the existing `/api`
+  dev proxy
+- Added `product-api.ts` (`mapResearchProduct` + `fetchProducts`):
+  maps `research_products` rows → `Product`, deriving workflow `progress`
+  and `health` from backend status (NEW→25/needs-attention, GENERATED→50/
+  ready, QUEUED→75/ready, PUBLISHED→100/ready, FAILED→25/blocked)
+- Products page keeps its skeleton, filters, sorting, grid/list views, and
+  detail drawer; added a friendly error state with "Try again" (reuses the
+  empty-state pattern) and the existing empty/results states
+- `ProductImage` renders its fallback icon when a product has no image URL
+- `next.config.ts` allows Amazon CDN image hostnames (`m.media-amazon.com`,
+  `images-na.ssl-images-amazon.com`) for real product imagery
+
+### Added
+- `GET /research-products` response now includes `asin`
+  (`services/database.py`) and maps DB failures to 503/500 like sibling
+  endpoints (`services/atlas_api.py`)
+- Products screenshots (desktop dark/light, mobile dark) in
+  `frontend/public/screenshots/`
+
+---
+
+## [0.6.0] - 2026-08-06
+
+### Added
+- ATLAS-025: Publishing Center MVP
+  (`frontend/src/features/publishing/`, UI-only)
+- Four-question mission-control summary (reuses dashboard `MetricCard`):
+  Ready to Publish / Scheduled / Published / Boards
+- Publishing Queue of approved creatives with board + status badges
+- Publish Console: live pin preview (reuses Creative Studio `CreativePin`),
+  Pinterest board picker, Publish Now / Schedule timing, and
+  Publish Now / Schedule actions with future-time validation
+- Published History: upcoming scheduled pins first, then recent published
+  and failed pins, with board, timestamp, and copy-link action
+- Status flow: queued → published now / scheduled; history grows live,
+  summary counts update live, empty states for queue and history
+- Skeleton loading (650ms), responsive 2-column workspace stacking on
+  tablet/mobile, dark/light themes
+- Publishing page now renders the Publishing Center instead of placeholder
+
+---
+
 ## [0.5.0] - 2026-08-06
 
 ### Added

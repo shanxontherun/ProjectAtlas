@@ -279,4 +279,13 @@ def create_research_product(body: ResearchProductCreate) -> ResearchProductRespo
 
 @app.get("/research-products")
 def get_research_products():
-    return fetch_all_research_products()
+    try:
+        return fetch_all_research_products()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        # Surface unexpected DB failures without leaking stack traces to clients
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch research products: {exc}",
+        ) from exc

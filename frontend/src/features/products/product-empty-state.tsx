@@ -1,16 +1,35 @@
-import { PackagePlus, SlidersHorizontal } from "lucide-react";
+import { PackagePlus, ServerCrash, SlidersHorizontal } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 
 type ProductEmptyStateProps = {
-  variant?: "no-products" | "no-results";
+  variant?: "no-products" | "no-results" | "error";
   onClearFilters?: () => void;
+  onRetry?: () => void;
 };
 
 export function ProductEmptyState({
   variant = "no-products",
   onClearFilters,
+  onRetry,
 }: ProductEmptyStateProps) {
+  if (variant === "error") {
+    return (
+      <EmptyState
+        icon={ServerCrash}
+        title="Unable to load products"
+        description="The product catalog could not be reached. Check that the backend service is running, then try again."
+        action={
+          onRetry && (
+            <Button variant="outline" onClick={onRetry}>
+              Try again
+            </Button>
+          )
+        }
+      />
+    );
+  }
+
   if (variant === "no-results") {
     return (
       <EmptyState
