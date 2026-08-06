@@ -91,14 +91,6 @@ export function improveDraft(draft: ContentDraft): ContentDraft {
   };
 }
 
-export function regenerateDraft(draft: ContentDraft, seed: number): ContentDraft {
-  return {
-    ...draft,
-    description: appendSentence(draft.description, CLOSERS[seed % CLOSERS.length]),
-    seoScore: Math.min(100, draft.seoScore + 5),
-  };
-}
-
 export function shortenDraft(draft: ContentDraft): ContentDraft {
   return { ...draft, description: shorten(draft.description, 180) };
 }
@@ -107,19 +99,5 @@ export function expandDraft(draft: ContentDraft, seed: number): ContentDraft {
   return {
     ...draft,
     description: appendSentence(draft.description, DETAILS[seed % DETAILS.length]),
-  };
-}
-
-export function generateDraft(item: {
-  productName: string;
-  category: string;
-}): ContentDraft {
-  const name = item.productName;
-  return {
-    title: `${name} — Keep It Neat`,
-    description: `Discover the ${name}. Practical, well-made, and designed to keep your ${item.category.toLowerCase()} space tidy. Tap to see why shoppers love it.`,
-    hashtags: `#${name.replace(/[^a-zA-Z0-9]+/g, "")} #HomeOrganization #AmazonFinds`,
-    cta: "Shop on Amazon",
-    seoScore: 80,
   };
 }

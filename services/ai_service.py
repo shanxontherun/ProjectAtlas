@@ -7,7 +7,10 @@ Handles communication with the configured AI Gateway (OmniRoute).
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +19,13 @@ from dotenv import load_dotenv
 
 from services.ai_client import AIClient
 from services.ai_prompts import REQUIRED_CONTENT_FIELDS, SYSTEM_PROMPT
-from services.database import get_connection
+from services.database import (
+    ai_content_exists,
+    create_ai_content,
+    get_connection,
+    mark_research_generated,
+    update_ai_content,
+)
 
 load_dotenv()
 
@@ -24,6 +33,32 @@ BASE_URL = os.getenv("AI_BASE_URL")
 API_KEY = os.getenv("AI_API_KEY")
 MODEL = os.getenv("AI_MODEL")
 REQUEST_TIMEOUT = 120
+
+# Structured development logging around AI generation. Disabled in
+# production by setting ATLAS_DEV_LOG=0.
+DEV_LOG_ENABLED = os.getenv("ATLAS_DEV_LOG", "1") == "1"
+
+logger = logging.getLogger(__name__)
+
+
+def _dev_log(event: str, **fields: Any) -> None:
+    """
+    Emit a structured development log line for AI generation.
+
+    Development only: no-op when ATLAS_DEV_LOG != "1".
+    """
+
+    if not DEV_LOG_ENABLED:
+        return
+
+    record: dict[str, Any] = {
+        "event": event,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+    record.update(fields)
+
+    logger.info("AI %s %s", event, json.dumps(record, default=str))
 
 def get_headers() -> dict[str, str]:
     """
@@ -152,6 +187,15 @@ class AIValidationError(Exception):
     """
 
 
+class AlreadyGeneratedError(Exception):
+    """
+    Raised when AI content already exists for a research product.
+
+    Used for idempotency so neither the AI worker nor the HTTP API
+    ever generates a duplicate row for the same product.
+    """
+
+
 def validate_content_fields(
     content: dict[str, Any],
 ) -> None:
@@ -206,11 +250,27 @@ def generate_ai_content(
 
     prompt = build_prompt(product)
 
+    start = time.monotonic()
+
+    _dev_log(
+        "ai_generate_request",
+        research_product_id=product.get("research_product_id"),
+        product_name=product.get("product_name"),
+        prompt=prompt,
+    )
+
     client = AIClient()
 
     response = client.generate(
         prompt=prompt,
         system_prompt=SYSTEM_PROMPT,
+    )
+
+    _dev_log(
+        "ai_generate_response",
+        research_product_id=product.get("research_product_id"),
+        duration_ms=round((time.monotonic() - start) * 1000, 3),
+        response=response,
     )
 
     content = parse_json_response(response)
@@ -223,6 +283,126 @@ def generate_ai_content(
     validate_content_fields(content)
 
     return content
+
+
+def generate_and_save_ai_content(
+    product: dict[str, Any],
+) -> int:
+    """
+    Generate AI content for a research product and persist it.
+
+    Single shared entry point for generation + persistence, reused by
+    both the AI worker and the HTTP API so the workflow lives in
+    exactly one place.
+
+    Skips nothing: callers are expected to pre-check idempotency via
+    the exception below.
+
+    Args:
+        product:
+            Research product dict (must contain ``research_product_id``
+            plus the fields the Pinterest prompt template needs).
+
+    Returns:
+        The persisted ``ai_content_id``.
+
+    Raises:
+        AlreadyGeneratedError:
+            If AI content already exists for the research product.
+        AIValidationError:
+            If the AI response is malformed or missing required fields.
+    """
+
+    product_id = int(product["research_product_id"])
+
+    _dev_log(
+        "ai_generate_start",
+        research_product_id=product_id,
+        product_name=product.get("product_name"),
+        mode="create",
+    )
+
+    if ai_content_exists(product_id):
+        raise AlreadyGeneratedError(
+            f"AI content already exists for product {product_id}"
+        )
+
+    content = generate_ai_content(product)
+
+    ai_content_id = create_ai_content(
+        product_id,
+        content,
+    )
+
+    mark_research_generated(product_id)
+
+    _dev_log(
+        "ai_db_update",
+        research_product_id=product_id,
+        ai_content_id=ai_content_id,
+        mode="create",
+    )
+
+    return ai_content_id
+
+
+def regenerate_and_save_ai_content(
+    product: dict[str, Any],
+) -> int:
+    """
+    Regenerate AI content for a research product, replacing existing content.
+
+    Manual user action path: generates fresh content and UPDATEs the
+    existing ai_content row in place. Never appends text and never
+    creates a second row for the same product.
+
+    Workers never use this path — they stay idempotent via
+    ``generate_and_save_ai_content``, which raises
+    ``AlreadyGeneratedError`` when content already exists.
+
+    Args:
+        product:
+            Research product dict (must contain ``research_product_id``).
+
+    Returns:
+        The updated ``ai_content_id``.
+
+    Raises:
+        AIValidationError:
+            If the AI response is malformed or missing required fields.
+        sqlite3.Error:
+            If no existing ai_content row exists to update.
+    """
+
+    product_id = int(product["research_product_id"])
+
+    _dev_log(
+        "ai_generate_start",
+        research_product_id=product_id,
+        product_name=product.get("product_name"),
+        mode="update",
+    )
+
+    start = time.monotonic()
+
+    content = generate_ai_content(product)
+
+    ai_content_id = update_ai_content(
+        product_id,
+        content,
+    )
+
+    mark_research_generated(product_id)
+
+    _dev_log(
+        "ai_db_update",
+        research_product_id=product_id,
+        ai_content_id=ai_content_id,
+        mode="update",
+        duration_ms=round((time.monotonic() - start) * 1000, 3),
+    )
+
+    return ai_content_id
 
 
 def fetch_generated_ai_content() -> list[dict[str, Any]]:

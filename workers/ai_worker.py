@@ -6,11 +6,9 @@ Generates Pinterest AI content for pending research products.
 
 from __future__ import annotations
 
-from services.ai_service import generate_ai_content
-from services.database import (
-    ai_content_exists,
-    create_ai_content,
-    mark_research_generated,
+from services.ai_service import (
+    AlreadyGeneratedError,
+    generate_and_save_ai_content,
 )
 from services.research_products import fetch_pending_research_products
 
@@ -40,23 +38,17 @@ def main() -> None:
 
         try:
 
-            if ai_content_exists(product_id):
-                print("   ✓ Already generated. Skipping.\n")
-                skipped += 1
-                continue
-
-            content = generate_ai_content(product)
-
-            create_ai_content(
-                product_id,
-                content,
-            )
-
-            mark_research_generated(product_id)
+            generate_and_save_ai_content(product)
 
             print("   ✓ AI content generated.\n")
 
             generated += 1
+
+        except AlreadyGeneratedError:
+
+            print("   ✓ Already generated. Skipping.\n")
+
+            skipped += 1
 
         except Exception as exc:
 

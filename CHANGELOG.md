@@ -6,7 +6,42 @@ This project follows semantic versioning.
 
 ---
 
-## [0.7.0] - 2026-08-06
+## [0.8.0] - 2026-08-06
+
+### Changed
+- ATLAS-027: AI Studio now loads real backend content instead of the mock
+  catalog; the mock file was removed (`content/mock-data.ts`)
+- `GET /ai-content` is the single source for AI Studio; TanStack Query
+  (`useContent`) fetches it through the existing `/api` dev proxy
+- Added `content-api.ts` (`mapAiContent` + `fetchAiContent`): maps joined
+  `research_products` × `ai_content` rows → `ContentItem`, deriving
+  status on the client: GENERATED→needs-review, APPROVED→approved,
+  QUEUED/PUBLISHED→queued, no content→waiting
+- Generate and approve are real backend round-trips
+  (`POST /ai-content/generate`, `POST /ai-content/approve`); UI keeps the
+  transient in-progress states, the backend always wins on refetch
+- AI Studio keeps its exact UI: skeleton, summary cards, search/status
+  filters, queue, editor, review decisions, preview, dark/light themes;
+  added a friendly error state with "Try again" (reuses `EmptyState`)
+- `services/database.py`: `fetch_ai_content()` now LEFT JOINs
+  `research_products rp` with `ai_content ac` (single query, exposes
+  `research_status`/`content_status`/`ai_content_id`); added
+  `fetch_research_product_by_id()` and `approve_ai_content()`
+- `services/ai_service.py`: shared `generate_and_save_ai_content()` reused
+  by both the AI worker and the API (idempotent, raises
+  `AlreadyGeneratedError`); worker no longer duplicates create/mark logic
+- `services/atlas_api.py`: added `GET /ai-content` (503/500 mapping) and
+  `POST /ai-content/generate` / `POST /ai-content/approve`
+  (404/422/500/502 mapping) with typed request/response models
+
+### Added
+- `frontend/src/features/content/use-content.ts`: `useContent`,
+  `useGenerateContent`, `useApproveContent` with shared
+  `["content"]` query-key invalidation
+- AI Studio screenshots (desktop light/dark, error state) captured during
+  verification in `frontend/public/screenshots/`
+
+---
 
 ### Changed
 - ATLAS-026: Products page now loads real backend data instead of the mock

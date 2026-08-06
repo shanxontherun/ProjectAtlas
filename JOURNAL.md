@@ -2,6 +2,96 @@
 
 ---
 
+# 2026-08-06 (ATLAS-027)
+
+## Goal
+
+Replace the AI Studio mock catalog with real FastAPI backend data —
+keeping the page pixel-identical (skeletons, summary cards, queue, editor,
+review decisions, preview modal, toolbar filters, dark/light themes).
+Reuse the existing `ai_content` table, generation/validation services, and
+worker logic before creating anything new; the UI must reflect DB state on
+reload. This was the reference backend-integration sprint.
+
+## Accomplished
+
+- **Backend reuse audit** (documented in `docs/ATLAS-027-deliverables.md`):
+  reused `ai_content` (sql/007), `generate_ai_content`,
+  `create_ai_content`, `ai_content_exists`, `mark_research_generated`,
+  `get_connection`, `AIClient`/`AIValidationError`/prompt builders, and the
+  AI worker — no new tables, no schema changes
+- `services/database.py`: rewrote `fetch_ai_content()` as a single LEFT
+  JOIN of `research_products rp` × `ai_content ac` (aliased
+  `research_status` / `content_status` / `content_created_at` /
+  `content_updated_at`, exposes `ai_content_id`); added
+  `fetch_research_product_by_id()` and `approve_ai_content()` (flips the
+  existing `ai_content.status` → APPROVED, reusing the status column)
+- `services/ai_service.py`: added `AlreadyGeneratedError` and the shared
+  `generate_and_save_ai_content(product)` (idempotency check →
+  generate → create → mark-research-generated), now used by BOTH the AI
+  worker and the API so behavior can't drift
+- `services/atlas_api.py`: added `GET /ai-content` (503/500 mapping) and
+  `POST /ai-content/generate` (404/422/500/502, idempotent 200) /
+  `POST /ai-content/approve` (404 when no content), with typed request/
+  response models; `sys.path` shim so `services.*` imports work from
+  `services/`
+- `workers/ai_worker.py`: refactored onto the shared service; removed
+  duplicated create/mark logic (external behavior unchanged)
+- Frontend: added `content-api.ts` (`mapAiContent` deriving status:
+  QUEUED/PUBLISHED→queued, APPROVED→approved, GENERATED content→needs-
+  review, no content→waiting), `use-content.ts` (query + generate/approve
+  mutations invalidating `["content"]`), and `content-empty-state.tsx`;
+  `content-view.tsx` rewritten to the hooks with transient in-browser
+  states that the server overwrites on refetch; deleted `mock-data.ts`;
+  removed dead `generateDraft` from `content-utils.ts`
+- Verified backend round-trips on the seeded DB: `/ai-content` 10 rows (6
+  with content), idempotent regenerate, 404s for missing product/approve
+- Verified UI with Playwright on the preview URL: **19/19** checks —
+  skeleton, queue from backend, status derivation + summary counts,
+  editor loads backend draft, Improve, search/status filters, preview
+  dialog, dark↔light toggle, Generate round-trip (waiting→needs-review),
+  Approve round-trip (→approved), persistence across reload, `/products`
+  unaffected, no page errors; plus error-state (backend down) and
+  Try-again recovery (1/1 each)
+- `npm run lint` 0/0, `npm run build` clean (12 static routes),
+  `npx tsc --noEmit` clean after build
+- Added CHANGELOG 0.8.0 entry, this journal entry, and
+  `docs/ATLAS-027-deliverables.md`; screenshots in
+  `frontend/public/screenshots/ai-studio-backend-*.png`
+
+## Lessons
+
+- Client-side status derivation in the mapper keeps the backend raw-data
+  authority while the UI owns presentation; matching the queue ordering to
+  `filterContentItems`' sort rank is what keeps waiting/needs-review in
+  the right visual order.
+- Idempotent generate returning `ai_content_id: null` on an existing
+  product is a clean contract for "already done", but the UI must only
+  offer generate for waiting items or it will look like a silent no-op.
+- Transient UI states + `patch.status === "generating" && item.draft`
+  skip in the memo is a clean way to keep in-flight feedback without ever
+  persisting it; server refetch is the single source of truth.
+- Playwright selectors: `role="combobox"` (Radix Select trigger) is not a
+  `button`; queue buttons are `button[aria-label$=" in the editor"]`;
+  next-themes `defaultTheme="dark"` means the theme toggle flips dark→
+  light on first click, not the other way around.
+- Real AI gateway is unavailable locally (no `AI_BASE_URL`/`AI_API_KEY`/
+  `AI_MODEL`); a stub OpenAI-compatible server on the `AIClient` default
+  port (20128) proved the wiring end-to-end.
+
+## Next Session
+
+- Wire Creative Studio and Publishing to real backend data using this
+  pattern once their workers write statuses; AI Studio is now the
+  reference for generate→review→approve.
+- Re-run verification against real AI output once the gateway is
+  configured in the runtime.
+- Decide whether "Needs Changes"/"Queue" should persist server-side, and
+  consolidate the duplicate `fetch_all_research_products`
+  (`database.py` vs `services/research_products.py`).
+
+---
+
 # 2026-08-06 (ATLAS-026)
 
 ## Goal

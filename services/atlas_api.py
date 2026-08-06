@@ -7,12 +7,20 @@ Exposes health, categories, and jobs endpoints for Project Atlas.
 from __future__ import annotations
 
 import sqlite3
+import sys
 import logging
 
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
+
+# Ensure the workspace root is importable so services can be referenced
+# as a package whether uvicorn runs from services/ or the repo root.
+_WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+if str(_WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_WORKSPACE_ROOT))
 
 from database import (
     claim_next_pending_job,
@@ -24,6 +32,18 @@ from database import (
     product_exists,
     create_product_registry_entry,
     touch_product,
+)
+from services.ai_service import (
+    AIValidationError,
+    AlreadyGeneratedError,
+    generate_and_save_ai_content,
+    regenerate_and_save_ai_content,
+)
+from services.database import (
+    ai_content_exists,
+    approve_ai_content,
+    fetch_ai_content,
+    fetch_research_product_by_id,
 )
 
 logging.basicConfig(
@@ -109,6 +129,34 @@ class ResearchProductCreate(BaseModel):
 class ResearchProductResponse(BaseModel):
     success: bool
     research_product_id: int
+
+
+class AiContentGenerateRequest(BaseModel):
+    """Request body for generating AI content for a research product."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product to generate content for",
+    )
+
+
+class AiContentApproveRequest(BaseModel):
+    """Request body for approving AI content for a research product."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose content should be approved",
+    )
+
+
+class AiContentActionResponse(BaseModel):
+    """Response returned after a generate / approve action."""
+
+    success: bool
+    ai_content_id: int | None = None
+    content: dict[str, Any] | None = None
 
 
 @app.get("/health")
@@ -289,3 +337,143 @@ def get_research_products():
             status_code=500,
             detail=f"Failed to fetch research products: {exc}",
         ) from exc
+
+
+@app.get("/ai-content")
+def get_ai_content():
+    """
+    Return every research product with its generated AI content (if any).
+
+    Reuses the enriched fetch_ai_content query; waiting products have a
+    NULL ai_content_id so the AI Studio queue can render them as "waiting".
+    """
+    try:
+        return fetch_ai_content()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch AI content: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/ai-content/generate",
+    response_model=AiContentActionResponse,
+)
+def generate_ai_content_for_product(
+    body: AiContentGenerateRequest,
+) -> AiContentActionResponse:
+    """
+    Generate (or regenerate) and persist AI content for a research product.
+
+    Reuses the existing AI generation + persistence service that the AI
+    worker calls. Manual regeneration is an upsert: when content already
+    exists the existing ai_content row is updated in place (replace, never
+    append, never a duplicate row); when no content exists a new row is
+    created. The worker path stays idempotent — it calls
+    generate_and_save_ai_content directly, which skips existing content.
+    """
+    try:
+        product = fetch_research_product_by_id(body.research_product_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if product is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Research product {body.research_product_id} not found.",
+        )
+
+    try:
+        if ai_content_exists(body.research_product_id):
+            ai_content_id = regenerate_and_save_ai_content(product)
+        else:
+            ai_content_id = generate_and_save_ai_content(product)
+
+        rows = fetch_ai_content(body.research_product_id)
+        updated = rows[0] if rows else None
+    except AlreadyGeneratedError:
+        logger.info(
+            "AI content already exists for product %s; skipping.",
+            body.research_product_id,
+        )
+        try:
+            rows = fetch_ai_content(body.research_product_id)
+            updated = rows[0] if rows else None
+        except Exception:
+            updated = None
+        return AiContentActionResponse(
+            success=True,
+            ai_content_id=None,
+            content=updated,
+        )
+    except AIValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"AI generation failed validation: {exc}",
+        ) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to persist AI content: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI generation failed: {exc}",
+        ) from exc
+
+    logger.info(
+        "Generated AI content for product %s (ai_content_id=%s)",
+        body.research_product_id,
+        ai_content_id,
+    )
+
+    return AiContentActionResponse(
+        success=True,
+        ai_content_id=ai_content_id,
+        content=updated,
+    )
+
+
+@app.post(
+    "/ai-content/approve",
+    response_model=AiContentActionResponse,
+)
+def approve_ai_content_for_product(
+    body: AiContentApproveRequest,
+) -> AiContentActionResponse:
+    """
+    Approve the AI content of a research product.
+
+    Reuses the existing ai_content.status field
+    (GENERATED / APPROVED / REJECTED) via approve_ai_content.
+    """
+    try:
+        ai_content_id = approve_ai_content(body.research_product_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to approve AI content: {exc}",
+        ) from exc
+
+    if ai_content_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No AI content exists for research product "
+                f"{body.research_product_id}."
+            ),
+        )
+
+    logger.info(
+        "Approved AI content %s (research product %s)",
+        ai_content_id,
+        body.research_product_id,
+    )
+
+    return AiContentActionResponse(success=True, ai_content_id=ai_content_id)
