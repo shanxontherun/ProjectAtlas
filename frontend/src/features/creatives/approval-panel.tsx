@@ -1,6 +1,12 @@
 "use client";
 
-import { CheckCircle2, CopyPlus, RefreshCw, Send } from "lucide-react";
+import {
+  CheckCircle2,
+  CopyPlus,
+  RefreshCw,
+  Send,
+  Undo2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContentStatusBadge } from "@/features/content/content-status-badge";
 import { ProductImage } from "@/features/products/product-image";
@@ -16,9 +22,9 @@ function getHint(item: CreativeItem | null) {
     case "needs-review":
       return "Approve this creative or queue it for publishing.";
     case "approved":
-      return "Approved — queue it for publishing or keep tweaking.";
+      return "Approved — creative is locked for editing. Return it to review to keep editing.";
     case "queued":
-      return "This creative is already queued for publishing.";
+      return "This creative has already been queued for publishing. Remove it from the publishing queue before editing.";
   }
 }
 
@@ -29,6 +35,7 @@ type ApprovalPanelProps = {
   onRegenerate: () => void;
   onGenerateVariants: () => void;
   onQueue: () => void;
+  onReturnToReview: () => void;
 };
 
 export function ApprovalPanel({
@@ -38,12 +45,10 @@ export function ApprovalPanel({
   onRegenerate,
   onGenerateVariants,
   onQueue,
+  onReturnToReview,
 }: ApprovalPanelProps) {
-  const reviewable =
-    item?.status === "needs-review" || item?.status === "approved";
-  const approvable = item?.status === "needs-review";
-  const queueable =
-    item?.status === "needs-review" || item?.status === "approved";
+  const needsReview = item?.status === "needs-review";
+  const approved = item?.status === "approved";
 
   return (
     <section className="rounded-xl border border-border bg-card p-4">
@@ -73,39 +78,50 @@ export function ApprovalPanel({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onRegenerate}
-            disabled={!reviewable}
-          >
-            <RefreshCw data-icon="inline-start" className="size-4" />
-            Regenerate
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onGenerateVariants}
-            disabled={!reviewable}
-          >
-            <CopyPlus data-icon="inline-start" className="size-4" />
-            Generate Variants
-          </Button>
-          <Button type="button" onClick={onApprove} disabled={!approvable}>
-            <CheckCircle2 data-icon="inline-start" className="size-4" />
-            Approve
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onQueue}
-            disabled={!queueable}
-          >
-            <Send data-icon="inline-start" className="size-4" />
-            Queue for Publishing
-          </Button>
-        </div>
+        {item && (
+          <div className="flex flex-wrap items-center gap-2">
+            {needsReview && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onRegenerate}
+                >
+                  <RefreshCw data-icon="inline-start" className="size-4" />
+                  Regenerate
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onGenerateVariants}
+                >
+                  <CopyPlus data-icon="inline-start" className="size-4" />
+                  Generate Variants
+                </Button>
+                <Button type="button" onClick={onApprove}>
+                  <CheckCircle2 data-icon="inline-start" className="size-4" />
+                  Approve
+                </Button>
+              </>
+            )}
+            {approved && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onReturnToReview}
+              >
+                <Undo2 data-icon="inline-start" className="size-4" />
+                Return to Review
+              </Button>
+            )}
+            {(needsReview || approved) && (
+              <Button type="button" variant="secondary" onClick={onQueue}>
+                <Send data-icon="inline-start" className="size-4" />
+                Queue for Publishing
+              </Button>
+            )}
+          </div>
+        )}
       </div>
       {feedback && (
         <p className="mt-3 text-xs font-medium text-primary">{feedback}</p>

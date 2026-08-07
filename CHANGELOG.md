@@ -6,6 +6,44 @@ This project follows semantic versioning.
 
 ---
 
+## [0.9.0] - 2026-08-07
+
+### Changed
+- ATLAS-028: Creative Studio now loads real backend content instead of the
+  mock catalog; the workflow mirrors ATLAS-027 (AI Studio)
+- `GET /creatives` is the single source for Creative Studio; TanStack Query
+  (`useCreatives`) fetches it through the existing `/api` dev proxy
+- Added `creative-api.ts` (`mapCreative` + `fetchCreatives`): maps joined
+  `research_products` × `ai_content` × `creative_assets` rows → `CreativeItem`,
+  deriving status on the client: APPROVED→approved, FAILED→waiting,
+  creative exists→needs-review, no creative→waiting
+- Generate and approve are real backend round-trips
+  (`POST /creatives/generate`, `POST /creatives/approve`); the API path
+  reuses the creative worker's rendering pipeline via the shared
+  `generate_and_save_creative`; the worker stays idempotent and untouched
+- Creative Studio keeps its exact UI: skeleton, summary cards, queue,
+  preview, template/variant galleries, properties panel, readiness
+  checklist, approval panel, dark/light themes; added a friendly error
+  state with "Try again" (reuses `EmptyState`)
+- `services/creative_service.py`: creative assets data layer +
+  `fetch_creatives_workflow` (single joined read model) + idempotent
+  `generate_and_save_creative`
+- `services/atlas_api.py`: added `GET /creatives` (503/500 mapping) and
+  `POST /creatives/generate` / `POST /creatives/approve`
+  (404/500/502 mapping) with typed request/response models
+- Stabilization: theme-toggle mounted guard removes the pre-existing
+  next-themes hydration-mismatch console error on every page; removed the
+  dead `buildCreativeItem` mock builder from `creative-utils.ts`
+
+### Added
+- `frontend/src/features/creatives/use-creatives.ts`: `useCreatives`,
+  `useGenerateCreative`, `useApproveCreative` with shared
+  `["creatives"]` query-key invalidation
+- Creative Studio screenshots (desktop light/dark, generated, approved
+  persisted) captured during verification in `frontend/public/screenshots/`
+
+---
+
 ## [0.8.0] - 2026-08-06
 
 ### Changed

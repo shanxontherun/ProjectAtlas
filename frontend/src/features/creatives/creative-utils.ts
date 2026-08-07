@@ -4,7 +4,6 @@ import {
 } from "./types";
 import type {
   CreativeItem,
-  CreativeProperties,
   CreativeStatus,
   TemplateId,
   VariantId,
@@ -64,14 +63,6 @@ export function makeHeadline(productName: string) {
 
 export const DEFAULT_CTA = "Shop on Amazon";
 
-const DEFAULT_PROPERTIES: CreativeProperties = {
-  headline: "",
-  cta: DEFAULT_CTA,
-  brand: "Atlas",
-  logoPosition: "top-left",
-  overlayStyle: "dark",
-};
-
 export const VARIANT_TEMPLATE_MAP: Record<VariantId, TemplateId> = {
   a: "minimal",
   b: "luxury",
@@ -84,43 +75,6 @@ export function variantForTemplate(templateId: TemplateId) {
     Object.entries(VARIANT_TEMPLATE_MAP) as [VariantId, TemplateId][]
   ).find(([, template]) => template === templateId);
   return match?.[0];
-}
-
-export function buildCreativeItem(
-  product: { name: string; category: string; imageUrl: string },
-  overrides: {
-    id?: string;
-    priority: CreativeItem["priority"];
-    status?: CreativeItem["status"];
-    templateId?: TemplateId;
-    selectedVariant?: VariantId;
-    headline?: string;
-    cta?: string;
-    brand?: string;
-    logoPosition?: CreativeProperties["logoPosition"];
-    overlayStyle?: CreativeProperties["overlayStyle"];
-  },
-): CreativeItem {
-  const templateId = overrides.templateId ?? "minimal";
-  const selectedVariant = overrides.selectedVariant ?? "a";
-
-  return {
-    id: overrides.id ?? `creative_${product.name.replace(/[^a-zA-Z0-9]+/g, "_").toLowerCase()}`,
-    productName: product.name,
-    category: product.category,
-    imageUrl: product.imageUrl,
-    priority: overrides.priority,
-    status: overrides.status ?? "waiting",
-    selectedVariant,
-    templateId,
-    properties: {
-      headline: overrides.headline ?? makeHeadline(product.name),
-      cta: overrides.cta ?? DEFAULT_PROPERTIES.cta,
-      brand: overrides.brand ?? DEFAULT_PROPERTIES.brand,
-      logoPosition: overrides.logoPosition ?? DEFAULT_PROPERTIES.logoPosition,
-      overlayStyle: overrides.overlayStyle ?? DEFAULT_PROPERTIES.overlayStyle,
-    },
-  };
 }
 
 export function nextVariant(variantId: VariantId): VariantId {

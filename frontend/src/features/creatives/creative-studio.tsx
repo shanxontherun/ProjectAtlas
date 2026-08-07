@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Layers, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { MOCK_CREATIVE_ITEMS } from "./mock-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   getCreativeCounts,
   nextVariant,
@@ -11,6 +18,7 @@ import {
   VARIANT_TEMPLATE_MAP,
   variantForTemplate,
 } from "./creative-utils";
+import { buildPresentationPayload } from "./creative-api";
 import { ApprovalPanel } from "./approval-panel";
 import { AtlasRecommendation } from "./atlas-recommendation";
 import { CreativeEmptyState } from "./creative-empty-state";
@@ -23,6 +31,13 @@ import { PropertiesPanel } from "./properties-panel";
 import { ReadinessChecklist } from "./readiness-checklist";
 import { TemplateGallery } from "./template-gallery";
 import { VariantGallery } from "./variant-gallery";
+import {
+  useApproveCreative,
+  useCreatives,
+  useGenerateCreative,
+  useReopenCreative,
+  useSaveCreative,
+} from "./use-creatives";
 import type {
   CreativeItem,
   CreativeProperties,
@@ -30,41 +45,94 @@ import type {
   VariantId,
 } from "./types";
 
-const GENERATION_DELAY = 1600;
+type CreativePatch = {
+  status?: CreativeItem["status"];
+  templateId?: TemplateId;
+  selectedVariant?: VariantId;
+  properties?: CreativeProperties;
+};
+
+const SAVE_DEBOUNCE_MS = 600;
+
+function isLocked(item: CreativeItem | null) {
+  return (
+    item !== null &&
+    (item.status === "approved" || item.status === "queued")
+  );
+}
 
 export function CreativeStudio() {
-  const [items, setItems] = useState<CreativeItem[]>(MOCK_CREATIVE_ITEMS);
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const firstReview = MOCK_CREATIVE_ITEMS.find(
-      (item) => item.status === "needs-review",
-    );
-    return firstReview?.id ?? null;
-  });
-  const [loading, setLoading] = useState(true);
+  const {
+    data: serverItems = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useCreatives();
+
+  const generateMutation = useGenerateCreative();
+  const approveMutation = useApproveCreative();
+  const saveMutation = useSaveCreative();
+  const reopenMutation = useReopenCreative();
+
+  // Transient presentation states (generating / queued) and local
+  // variant, template and property edits live in the browser until the
+  // debounced save persists them; the backend always wins on fetch.
+  const [transient, setTransient] = useState<Record<string, CreativePatch>>(
+    {},
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [reopenTarget, setReopenTarget] = useState<CreativeItem | null>(null);
 
-  const selectedIdRef = useRef<string | null>(null);
   const feedbackTimer = useRef<number | null>(null);
+  const saveTimers = useRef<Record<string, number | null>>({});
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 650);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const items = useMemo(
+    () =>
+      serverItems.map((item) => {
+        const patch = transient[item.id];
+        if (!patch) return item;
+        if (patch.status === "generating" && item.status !== "waiting") {
+          return item;
+        }
+        return {
+          ...item,
+          status: patch.status ?? item.status,
+          templateId: patch.templateId ?? item.templateId,
+          selectedVariant: patch.selectedVariant ?? item.selectedVariant,
+          properties: patch.properties ?? item.properties,
+        };
+      }),
+    [serverItems, transient],
+  );
 
   const counts = getCreativeCounts(items);
   const waitingCount = counts.waiting;
-  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  // Fall back to the first item awaiting review until the user selects one.
+  const autoSelectedId =
+    items.find((item) => item.status === "needs-review")?.id ?? null;
+  const activeSelectedId = selectedId ?? autoSelectedId;
+  const selectedItem =
+    items.find((item) => item.id === activeSelectedId) ?? null;
 
   function selectItem(item: CreativeItem) {
     setSelectedId(item.id);
-    selectedIdRef.current = item.id;
     setFeedback(null);
   }
 
-  function patchItem(id: string, patch: Partial<CreativeItem>) {
-    setItems((current) =>
-      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
-    );
+  function patchTransient(itemId: string, patch: CreativePatch) {
+    setTransient((current) => ({
+      ...current,
+      [itemId]: { ...current[itemId], ...patch },
+    }));
+  }
+
+  function clearTransient(itemId: string) {
+    setTransient((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
   }
 
   function showFeedback(message: string) {
@@ -73,91 +141,150 @@ export function CreativeStudio() {
     feedbackTimer.current = window.setTimeout(() => setFeedback(null), 2200);
   }
 
-  function generateWaiting(limit: number) {
+  function persistPresentation(item: CreativeItem) {
+    saveMutation.mutate(
+      {
+        researchProductId: Number(item.id),
+        presentation: buildPresentationPayload(item),
+      },
+      {
+        onError: () => showFeedback("Couldn't save your edits"),
+      },
+    );
+  }
+
+  function scheduleSave(item: CreativeItem) {
+    const existing = saveTimers.current[item.id];
+    if (existing !== null && existing !== undefined) {
+      window.clearTimeout(existing);
+    }
+    saveTimers.current[item.id] = window.setTimeout(() => {
+      saveTimers.current[item.id] = null;
+      if (!isLocked(item)) {
+        persistPresentation(item);
+      }
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  async function generateWaiting(limit: number) {
     const targets = items
       .filter((item) => item.status === "waiting")
       .slice(0, limit);
     if (targets.length === 0) return;
 
-    setItems((current) =>
-      current.map((item) =>
-        targets.some((target) => target.id === item.id)
-          ? { ...item, status: "generating" }
-          : item,
-      ),
-    );
-
     const first = targets[0];
     setSelectedId(first.id);
-    selectedIdRef.current = first.id;
     setFeedback(null);
 
     targets.forEach((target) => {
-      window.setTimeout(() => {
-        setItems((current) =>
-          current.map((item) =>
-            item.id === target.id && item.status === "generating"
-              ? { ...item, status: "needs-review" }
-              : item,
-          ),
-        );
-      }, GENERATION_DELAY);
+      patchTransient(target.id, { status: "generating" });
     });
+
+    for (const target of targets) {
+      try {
+        await generateMutation.mutateAsync({
+          researchProductId: Number(target.id),
+        });
+      } catch {
+        clearTransient(target.id);
+        showFeedback(`Couldn't generate a creative for ${target.productName}`);
+      }
+    }
   }
 
-  function approve() {
-    if (!selectedItem) return;
-    patchItem(selectedItem.id, { status: "approved" });
-    showFeedback("Approved — ready to queue for publishing.");
+  async function approve() {
+    if (!selectedItem || isLocked(selectedItem)) return;
+    patchTransient(selectedItem.id, { status: "approved" });
+    try {
+      await approveMutation.mutateAsync({
+        researchProductId: Number(selectedItem.id),
+        presentation: buildPresentationPayload(selectedItem),
+      });
+      clearTransient(selectedItem.id);
+      showFeedback("Approved — ready to queue for publishing.");
+    } catch {
+      clearTransient(selectedItem.id);
+      showFeedback("Couldn't approve this creative");
+    }
   }
 
   function queueForPublishing() {
-    if (!selectedItem) return;
-    patchItem(selectedItem.id, { status: "queued" });
+    if (!selectedItem || selectedItem.status === "queued") return;
+    patchTransient(selectedItem.id, { status: "queued" });
     showFeedback("Queued for publishing.");
   }
 
+  function requestReturnToReview() {
+    if (!selectedItem || selectedItem.status !== "approved") return;
+    setReopenTarget(selectedItem);
+  }
+
+  async function confirmReturnToReview() {
+    if (!reopenTarget) return;
+    const target = reopenTarget;
+    try {
+      await reopenMutation.mutateAsync(Number(target.id));
+      clearTransient(target.id);
+      showFeedback("Returned to review — this creative is editable again.");
+    } catch {
+      showFeedback("Couldn't return this creative to review");
+    } finally {
+      setReopenTarget(null);
+    }
+  }
+
   function regenerate() {
-    if (!selectedItem) return;
+    if (!selectedItem || isLocked(selectedItem)) return;
     const next = nextVariant(selectedItem.selectedVariant);
-    patchItem(selectedItem.id, {
+    const patch = {
       selectedVariant: next,
       templateId: VARIANT_TEMPLATE_MAP[next],
-    });
+    };
+    patchTransient(selectedItem.id, patch);
+    scheduleSave({ ...selectedItem, ...patch });
     showFeedback("Regenerated — created a new variant of this creative.");
   }
 
   function generateVariants() {
-    if (!selectedItem) return;
-    patchItem(selectedItem.id, { selectedVariant: "a", templateId: "minimal" });
+    if (!selectedItem || isLocked(selectedItem)) return;
+    const patch = {
+      selectedVariant: "a" as const,
+      templateId: "minimal" as const,
+    };
+    patchTransient(selectedItem.id, patch);
+    scheduleSave({ ...selectedItem, ...patch });
     showFeedback("Generated four new variants to compare.");
   }
 
   function selectVariant(variantId: VariantId) {
-    if (!selectedItem) return;
-    patchItem(selectedItem.id, {
+    if (!selectedItem || isLocked(selectedItem)) return;
+    const patch = {
       selectedVariant: variantId,
       templateId: VARIANT_TEMPLATE_MAP[variantId],
-    });
+    };
+    patchTransient(selectedItem.id, patch);
+    scheduleSave({ ...selectedItem, ...patch });
   }
 
   function selectTemplate(templateId: TemplateId) {
-    if (!selectedItem) return;
+    if (!selectedItem || isLocked(selectedItem)) return;
     const variant = variantForTemplate(templateId);
-    patchItem(selectedItem.id, {
+    const patch = {
       templateId,
       ...(variant ? { selectedVariant: variant } : {}),
-    });
+    };
+    patchTransient(selectedItem.id, patch);
+    scheduleSave({ ...selectedItem, ...patch });
   }
 
   function updateProperties(patch: Partial<CreativeProperties>) {
-    if (!selectedItem) return;
-    patchItem(selectedItem.id, {
-      properties: { ...selectedItem.properties, ...patch },
-    });
+    if (!selectedItem || isLocked(selectedItem)) return;
+    const properties = { ...selectedItem.properties, ...patch };
+    patchTransient(selectedItem.id, { properties });
+    scheduleSave({ ...selectedItem, properties });
   }
 
-  if (loading) {
+  if (isLoading) {
     return <CreativeSkeleton />;
   }
 
@@ -193,15 +320,22 @@ export function CreativeStudio() {
         </div>
       </header>
 
-      <CreativeSummary items={items} />
-
-      {items.length === 0 ? (
+      {isError ? (
+        <CreativeEmptyState
+          error
+          onRetry={refetch}
+          onGenerate={() => generateWaiting(waitingCount)}
+          canGenerate={false}
+        />
+      ) : items.length === 0 ? (
         <CreativeEmptyState
           onGenerate={() => generateWaiting(waitingCount)}
           canGenerate={false}
         />
       ) : (
         <>
+          <CreativeSummary items={items} />
+
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(250px,1fr)_3fr]">
             <div className="order-1 flex flex-col gap-6 lg:order-none lg:col-start-2 lg:row-start-1">
               <CreativePreview item={selectedItem} />
@@ -210,7 +344,7 @@ export function CreativeStudio() {
             <div className="order-2 lg:order-none lg:col-start-1 lg:row-start-1">
               <CreativeQueue
                 items={sorted}
-                selectedId={selectedId}
+                selectedId={activeSelectedId}
                 onSelect={selectItem}
               />
             </div>
@@ -234,9 +368,44 @@ export function CreativeStudio() {
             onRegenerate={regenerate}
             onGenerateVariants={generateVariants}
             onQueue={queueForPublishing}
+            onReturnToReview={requestReturnToReview}
           />
         </>
       )}
+
+      <Dialog
+        open={reopenTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setReopenTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Return creative to review?</DialogTitle>
+            <DialogDescription>
+              This will unlock the creative and allow further editing. The
+              creative will need to be approved again before it can be
+              published.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReopenTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmReturnToReview}
+              disabled={reopenMutation.isPending}
+            >
+              Return to Review
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

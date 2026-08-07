@@ -11,6 +11,10 @@ type VariantGalleryProps = {
 };
 
 export function VariantGallery({ item, onSelect }: VariantGalleryProps) {
+  const locked =
+    item !== null &&
+    (item.status === "approved" || item.status === "queued");
+
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5">
       <header className="flex items-center justify-between gap-2">
@@ -36,7 +40,7 @@ export function VariantGallery({ item, onSelect }: VariantGalleryProps) {
             <button
               key={variant.id}
               type="button"
-              disabled={!item}
+              disabled={!item || locked}
               onClick={() => onSelect(variant.id)}
               aria-pressed={active}
               className={cn(

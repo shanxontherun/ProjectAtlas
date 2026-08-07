@@ -39,6 +39,15 @@ from services.ai_service import (
     generate_and_save_ai_content,
     regenerate_and_save_ai_content,
 )
+from services.creative_service import (
+    CreativeContentNotFoundError,
+    CreativeLockedError,
+    approve_creative_for_product,
+    fetch_creatives_workflow,
+    generate_and_save_creative,
+    reopen_creative_for_review,
+    save_creative_presentation,
+)
 from services.database import (
     ai_content_exists,
     approve_ai_content,
@@ -156,6 +165,138 @@ class AiContentActionResponse(BaseModel):
 
     success: bool
     ai_content_id: int | None = None
+    content: dict[str, Any] | None = None
+
+
+class CreativePresentation(BaseModel):
+    """
+    Presentation state persisted with a creative.
+
+    ``headline`` and the property overrides are optional; the backend
+    merges only the provided fields so callers can send the full Studio
+    state (template, variant, headline, CTA, brand, logo position,
+    overlay style) without clobbering untouched fields.
+    """
+
+    selected_template: str | None = Field(
+        default=None,
+        description="Template selection (e.g. minimal, luxury, lifestyle)",
+    )
+    selected_variant: str | None = Field(
+        default=None,
+        description="Variant selection (a, b, c, d)",
+    )
+    headline: str | None = Field(
+        default=None,
+        description="Headline override persisted with the creative",
+    )
+    cta: str | None = Field(
+        default=None,
+        description="Call-to-action override",
+    )
+    brand: str | None = Field(
+        default=None,
+        description="Brand override",
+    )
+    logo_position: str | None = Field(
+        default=None,
+        description="Logo position override",
+    )
+    overlay_style: str | None = Field(
+        default=None,
+        description="Overlay style override",
+    )
+
+
+def _presentation_kwargs(
+    presentation: CreativePresentation | None,
+) -> dict[str, Any]:
+    """
+    Convert an API presentation payload into service-layer arguments.
+
+    Flattens the property overrides into the ``properties`` dict the
+    service persists as JSON alongside the template and variant.
+    """
+
+    if presentation is None:
+        return {}
+
+    properties: dict[str, Any] = {}
+
+    if presentation.cta is not None:
+        properties["cta"] = presentation.cta
+    if presentation.brand is not None:
+        properties["brand"] = presentation.brand
+    if presentation.logo_position is not None:
+        properties["logoPosition"] = presentation.logo_position
+    if presentation.overlay_style is not None:
+        properties["overlayStyle"] = presentation.overlay_style
+
+    return {
+        "selected_template": presentation.selected_template,
+        "selected_variant": presentation.selected_variant,
+        "headline": presentation.headline,
+        "properties": properties or None,
+    }
+
+
+class CreativeGenerateRequest(BaseModel):
+    """Request body for generating a creative for a research product."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose creative should be generated",
+    )
+    presentation: CreativePresentation | None = Field(
+        default=None,
+        description="Presentation state to persist with the generated creative",
+    )
+
+
+class CreativeApproveRequest(BaseModel):
+    """Request body for approving a creative for a research product."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose creative should be approved",
+    )
+    presentation: CreativePresentation | None = Field(
+        default=None,
+        description="Presentation state to persist with the approved creative",
+    )
+
+
+class CreativeSaveRequest(BaseModel):
+    """Request body for persisting Creative Studio presentation edits."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose creative should be saved",
+    )
+    presentation: CreativePresentation = Field(
+        ...,
+        description="Presentation state to persist with the creative",
+    )
+
+
+class CreativeReopenRequest(BaseModel):
+    """Request body for returning an approved creative to review."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose creative should be reopened",
+    )
+
+
+class CreativeActionResponse(BaseModel):
+    """Response returned after a creative generate / approve action."""
+
+    success: bool
+    creative_id: int | None = None
     content: dict[str, Any] | None = None
 
 
@@ -477,3 +618,247 @@ def approve_ai_content_for_product(
     )
 
     return AiContentActionResponse(success=True, ai_content_id=ai_content_id)
+
+
+@app.get("/creatives")
+def get_creatives():
+    """
+    Return every research product with its AI content and creative (if any).
+
+    Reuses the enriched fetch_creatives_workflow query; waiting items
+    have a NULL creative_id so the Creative Studio queue can render
+    them as "waiting" alongside generated and approved ones.
+    """
+    try:
+        return fetch_creatives_workflow()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch creatives: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/creatives/generate",
+    response_model=CreativeActionResponse,
+)
+def generate_creative_for_product(
+    body: CreativeGenerateRequest,
+) -> CreativeActionResponse:
+    """
+    Generate (or retry) and persist a creative for a research product.
+
+    Reuses the same creative generation pipeline as the creative worker
+    (image resolution, content mapping, RenderingEngine). The action is
+    idempotent: an existing creative is returned unchanged and never
+    rendered twice; a FAILED creative is replaced so manual retry
+    works. The worker batch path stays untouched and idempotent.
+    """
+    try:
+        creative = generate_and_save_creative(
+            body.research_product_id,
+            **_presentation_kwargs(body.presentation),
+        )
+    except CreativeContentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to persist creative: {exc}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Creative generation failed: {exc}",
+        ) from exc
+
+    creative_id = int(creative["creative_id"])
+
+    rows = fetch_creatives_workflow(body.research_product_id)
+    updated = rows[0] if rows else None
+
+    logger.info(
+        "Generated creative %s for research product %s",
+        creative_id,
+        body.research_product_id,
+    )
+
+    return CreativeActionResponse(
+        success=True,
+        creative_id=creative_id,
+        content=updated,
+    )
+
+
+@app.post(
+    "/creatives/approve",
+    response_model=CreativeActionResponse,
+)
+def approve_creative_for_product_endpoint(
+    body: CreativeApproveRequest,
+) -> CreativeActionResponse:
+    """
+    Approve the creative of a research product.
+
+    Reuses the existing creative_assets.status field
+    (GENERATED / APPROVED / FAILED) via mark_creative_approved.
+    """
+    try:
+        creative_id = approve_creative_for_product(
+            body.research_product_id,
+            **_presentation_kwargs(body.presentation),
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to approve creative: {exc}",
+        ) from exc
+
+    if creative_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No creative exists for research product "
+                f"{body.research_product_id}."
+            ),
+        )
+
+    rows = fetch_creatives_workflow(body.research_product_id)
+    updated = rows[0] if rows else None
+
+    logger.info(
+        "Approved creative %s (research product %s)",
+        creative_id,
+        body.research_product_id,
+    )
+
+    return CreativeActionResponse(
+        success=True,
+        creative_id=creative_id,
+        content=updated,
+    )
+
+
+@app.post(
+    "/creatives/save",
+    response_model=CreativeActionResponse,
+)
+def save_creative_for_product(
+    body: CreativeSaveRequest,
+) -> CreativeActionResponse:
+    """
+    Persist Creative Studio presentation edits for a product's creative.
+
+    Updates the selected template, variant, headline and lightweight
+    properties without changing status, so the Studio restores exactly
+    what was reviewed after a refresh. Approved and queued creatives
+    are locked and reject edits here — the Studio disables editing for
+    them, and this endpoint is the server-side backstop.
+    """
+    try:
+        creative = save_creative_presentation(
+            body.research_product_id,
+            **_presentation_kwargs(body.presentation),
+        )
+    except CreativeLockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save creative: {exc}",
+        ) from exc
+
+    if creative is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No creative exists for research product "
+                f"{body.research_product_id}."
+            ),
+        )
+
+    creative_id = int(creative["creative_id"])
+
+    rows = fetch_creatives_workflow(body.research_product_id)
+    updated = rows[0] if rows else None
+
+    logger.info(
+        "Saved presentation for creative %s (research product %s)",
+        creative_id,
+        body.research_product_id,
+    )
+
+    return CreativeActionResponse(
+        success=True,
+        creative_id=creative_id,
+        content=updated,
+    )
+
+
+@app.post(
+    "/creatives/reopen",
+    response_model=CreativeActionResponse,
+)
+def reopen_creative_for_review_endpoint(
+    body: CreativeReopenRequest,
+) -> CreativeActionResponse:
+    """
+    Return an approved creative to the editable review state.
+
+    Only the workflow status changes (APPROVED -> GENERATED); all
+    editorial decisions (headline, CTA, template, variant, overlay,
+    logo position, properties) are preserved. Queued creatives cannot
+    be reopened — they must be removed from the publishing queue first.
+    """
+    try:
+        creative_id = reopen_creative_for_review(body.research_product_id)
+    except CreativeLockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reopen creative: {exc}",
+        ) from exc
+
+    if creative_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No creative exists for research product "
+                f"{body.research_product_id}."
+            ),
+        )
+
+    rows = fetch_creatives_workflow(body.research_product_id)
+    updated = rows[0] if rows else None
+
+    logger.info(
+        "Reopened creative %s for review (research product %s)",
+        creative_id,
+        body.research_product_id,
+    )
+
+    return CreativeActionResponse(
+        success=True,
+        creative_id=creative_id,
+        content=updated,
+    )

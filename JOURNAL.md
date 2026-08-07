@@ -2,6 +2,83 @@
 
 ---
 
+# 2026-08-07 (ATLAS-028)
+
+## Goal
+
+Stabilize and verify the Creative Studio backend integration that was
+already implemented in the sprint — finish the work, don't redesign.
+Wire Creative Studio to real FastAPI data through the exact ATLAS-027
+architecture (SQLite → FastAPI → creative-api.ts → use-creatives.ts →
+TanStack Query → Creative Studio), keeping the worker idempotent and
+reusing every existing component.
+
+## Accomplished
+
+- **Reviewed the existing implementation** before touching anything:
+  backend endpoints (`GET /creatives`, `POST /creatives/generate`,
+  `POST /creatives/approve`), the creative-service data layer, the
+  joined `fetch_creatives_workflow` read model, `creative-api.ts`
+  (`mapCreative`), `use-creatives.ts`, and the rewired
+  `creative-studio.tsx` were all present and correct — no re-implementation
+  needed.
+- **Verified the backend end to end** against the seeded, gitignored
+  `database/atlas.db` via the real API: `/creatives` returns the joined
+  rows (2 APPROVED / 3 GENERATED / 1 waiting), generate is idempotent
+  (same `creative_id` on repeat, rendered PNG persisted), approve flips
+  status and survives a re-fetch, 404s for missing content / no creative.
+- **Seeded data like the real pipeline:** products + AI content via the
+  real endpoints; ASINs and per-ASIN product images written directly to
+  mirror the discovery/image workers (the legacy `POST /research-products`
+  path has no ASIN field, so that's the honest way to make rendering work).
+- **Playwright QA on the preview URL: 27/27** — queue from backend,
+  summary counts match, status derivation per row, backend headline in
+  the preview, generate round-trip (waiting→needs-review), approve
+  round-trip (→approved), persistence across reload, `/products` and
+  `/content` unaffected, zero console errors; plus error-state
+  (backend down) and Try-again recovery (2/2), and a
+  publishing/dashboard regression pass.
+- **Fixed the two things that blocked the success criteria:**
+  - `theme-toggle.tsx`: the pre-existing next-themes SSR/client
+    hydration mismatch logged a console error on every page; added a
+    mounted guard via `useSyncExternalStore` (avoids the new
+    `react-hooks/set-state-in-effect` lint rule) → zero console errors
+    everywhere.
+  - `creative-utils.ts`: removed the dead `buildCreativeItem` mock
+    builder + `DEFAULT_PROPERTIES` (unused since the queue went backend).
+- **Static checks:** `npm run lint` 0/0, `npm run build` clean (12 static
+  routes), `npx tsc --noEmit` clean after build.
+- **Smoke tests:** `tests/test_creative_worker.py` and
+  `tests/test_creative_rendering.py` all pass (worker idempotency,
+  failure recording, deterministic rendering).
+- Added `docs/ATLAS-028-deliverables.md`, CHANGELOG 0.9.0 entry, this
+  journal entry, and screenshots in
+  `frontend/public/screenshots/creative-studio-backend-*.png`.
+  No commit made (stabilization sprint).
+
+## Lessons
+
+- The handoff architecture was sound: this was genuinely a stabilization
+  sprint. The only code edits needed were a hydration-mismatch console
+  error in a shared layout component and dead mock code — not the creative
+  flow itself.
+- Creative generation depends on ASIN + local product image; those are
+  written by the discovery/image workers, so a verification seed must
+  mirror that (the API's product-create path doesn't carry ASINs).
+- React 19's eslint plugin flags `useEffect(() => setMounted(true), [])`;
+  `useSyncExternalStore` with `getServerSnapshot: () => false` is a lint-clean
+  mounted guard that also avoids the hydration warning.
+- The dashboard's first h1 is the time-based "Good morning" greeting, so a
+  naive "h1 contains Dashboard" assertion fails while the page is fine.
+
+## Next Session
+
+- Surface the backend-rendered PNG (`creative_image_path`) in the preview.
+- Add approve-undo and persist "Queue" so those actions survive a refresh.
+- Re-verify against the real AI gateway and real product imagery.
+
+---
+
 # 2026-08-06 (ATLAS-027)
 
 ## Goal

@@ -45,7 +45,8 @@ export function PropertiesPanel({ item, onChange }: PropertiesPanelProps) {
     );
   }
 
-  const readOnly = item.status === "queued";
+  const readOnly =
+    item.status === "queued" || item.status === "approved";
   const properties = item.properties;
   const fieldId = (suffix: string) => `${item.id}-${suffix}`;
 
@@ -60,7 +61,9 @@ export function PropertiesPanel({ item, onChange }: PropertiesPanelProps) {
 
       {readOnly && (
         <div className="rounded-lg border border-chart-2/25 bg-chart-2/10 px-3 py-2 text-xs text-chart-2">
-          This creative is queued for publishing and locked for editing.
+          {item.status === "approved"
+            ? "This creative is approved and locked for editing."
+            : "This creative is queued for publishing and locked for editing."}
         </div>
       )}
 
