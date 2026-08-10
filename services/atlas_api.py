@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 # Ensure the workspace root is importable so services can be referenced
@@ -43,6 +44,7 @@ from services.creative_service import (
     CreativeContentNotFoundError,
     CreativeLockedError,
     approve_creative_for_product,
+    fetch_creative_image_path,
     fetch_creatives_workflow,
     generate_and_save_creative,
     reopen_creative_for_review,
@@ -54,6 +56,32 @@ from services.database import (
     fetch_ai_content,
     fetch_research_product_by_id,
 )
+from services.pinterest_accounts import (
+    fetch_active_accounts,
+)
+from services.pinterest_boards import (
+    fetch_active_boards,
+)
+from services.category_routes import (
+    fetch_routes_by_category,
+)
+from services.pinterest_client import publish_pin
+from services.queue_service import (
+    create_queue_item,
+    fetch_active_queue_by_ai_content,
+    find_cancelled_queue_item,
+    fetch_publishing_rows,
+    fetch_publishing_summary,
+    fetch_queue_item_details,
+    mark_queue_cancelled,
+    mark_queue_failed,
+    mark_queue_published,
+    mark_queue_scheduled,
+    reactivate_queue_item,
+    update_queue_board,
+)
+from services.creative_service import queue_creative_for_publishing
+from services.creative_service import unqueue_creative_from_publishing
 
 logging.basicConfig(
     level=logging.INFO,
@@ -297,6 +325,82 @@ class CreativeActionResponse(BaseModel):
 
     success: bool
     creative_id: int | None = None
+    content: dict[str, Any] | None = None
+
+
+class PublishingQueueRequest(BaseModel):
+    """Request body for moving an approved creative into the queue."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose approved creative should be queued",
+    )
+
+
+class PublishingRemoveRequest(BaseModel):
+    """Request body for removing a queued creative from publishing."""
+
+    research_product_id: int = Field(
+        ...,
+        ge=1,
+        description="Research product whose queued creative should be removed",
+    )
+    pin_id: int | None = Field(
+        default=None,
+        description="Queue item to cancel; when omitted the active item is used",
+    )
+
+
+class PublishingScheduleRequest(BaseModel):
+    """Request body for scheduling a queued pin."""
+
+    pin_id: int = Field(
+        ...,
+        ge=1,
+        description="Queue item to schedule",
+    )
+    scheduled_at: str = Field(
+        ...,
+        description="ISO-8601 datetime when the pin should publish",
+    )
+
+
+class PublishingPublishNowRequest(BaseModel):
+    """Request body for publishing a queued pin immediately."""
+
+    pin_id: int = Field(
+        ...,
+        ge=1,
+        description="Queue item to publish",
+    )
+
+
+class PublishingBoardRequest(BaseModel):
+    """Request body for changing a queued pin's board and account."""
+
+    pin_id: int = Field(
+        ...,
+        ge=1,
+        description="Queue item whose board should change",
+    )
+    account_id: int = Field(
+        ...,
+        ge=1,
+        description="Pinterest account the pin should publish to",
+    )
+    board_id: int = Field(
+        ...,
+        ge=1,
+        description="Pinterest board the pin should publish to",
+    )
+
+
+class PublishingActionResponse(BaseModel):
+    """Response returned after a publishing action."""
+
+    success: bool
+    pin_id: int | None = None
     content: dict[str, Any] | None = None
 
 
@@ -806,6 +910,451 @@ def save_creative_for_product(
         success=True,
         creative_id=creative_id,
         content=updated,
+    )
+
+
+@app.get("/publishing")
+def get_publishing():
+    """
+    Return the Publishing Center read model.
+
+    Combines the active queue (PENDING / READY), the history
+    (PUBLISHED / FAILED / CANCELLED), the summary counts and the
+    available Pinterest accounts and boards into a single response so
+    the Publishing Center renders from live data.
+    """
+    try:
+        queue = fetch_publishing_rows(("PENDING", "READY"))
+        history = fetch_publishing_rows(
+            ("PUBLISHED", "FAILED", "CANCELLED"),
+            real_accounts_only=True,
+        )
+        summary = fetch_publishing_summary()
+        accounts = fetch_active_accounts()
+        boards = fetch_active_boards()
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch publishing data: {exc}",
+        ) from exc
+
+    return {
+        "queue": queue,
+        "history": history,
+        "summary": summary,
+        "accounts": accounts,
+        "boards": boards,
+    }
+
+
+@app.get("/publishing/accounts")
+def get_publishing_accounts():
+    """Return the active Pinterest accounts for the Publishing Center."""
+
+    try:
+        return fetch_active_accounts()
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch accounts: {exc}",
+        ) from exc
+
+
+@app.get("/publishing/boards")
+def get_publishing_boards():
+    """Return every active Pinterest board across all accounts."""
+
+    try:
+        return fetch_active_boards()
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch boards: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/publishing/queue",
+    response_model=PublishingActionResponse,
+)
+def queue_creative_for_publishing_endpoint(
+    body: PublishingQueueRequest,
+) -> PublishingActionResponse:
+    """
+    Move an approved creative into the publishing queue.
+
+    Resolves the destination account and board from the product's
+    category route, persists the queue item (PENDING), then flips the
+    creative to QUEUED so Creative Studio locks further edits.
+    """
+    product = fetch_research_product_by_id(body.research_product_id)
+    if product is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No research product {body.research_product_id}.",
+        )
+
+    category = product.get("category")
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Product has no category to route publishing.",
+        )
+
+    category_slug = category.lower().replace(" ", "_")
+    routes = fetch_routes_by_category(category_slug)
+    if not routes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No publishing route is configured for category "
+                f"'{category}'. Add a category route in the database "
+                "before queueing."
+            ),
+        )
+
+    rows = fetch_creatives_workflow(body.research_product_id)
+    workflow = rows[0] if rows else None
+    if workflow is None or workflow.get("creative_id") is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No creative exists for research product "
+            f"{body.research_product_id}.",
+        )
+
+    ai_content_id = workflow.get("ai_content_id")
+    if ai_content_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No AI content is linked to this product's creative.",
+        )
+
+    active = fetch_active_queue_by_ai_content(ai_content_id)
+    if active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Creative for product {body.research_product_id} is "
+                "already in the publishing queue."
+            ),
+        )
+
+    route = routes[0]
+
+    try:
+        cancelled = find_cancelled_queue_item(
+            ai_content_id,
+            route["account_id"],
+            route["board_id"],
+        )
+
+        if cancelled is not None:
+            pin_id = int(cancelled["pin_id"])
+            reactivate_queue_item(pin_id)
+        else:
+            pin_id = create_queue_item(
+                ai_content_id=ai_content_id,
+                account_id=route["account_id"],
+                board_id=route["board_id"],
+                affiliate_url=product.get("product_url"),
+                image_url=workflow.get("creative_image_path"),
+                publish_order=route.get("priority", 1),
+            )
+
+        creative_id = queue_creative_for_publishing(
+            body.research_product_id
+        )
+    except CreativeLockedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue creative: {exc}",
+        ) from exc
+
+    content = fetch_queue_item_details(pin_id)
+
+    logger.info(
+        "Queued creative %s (pin %s) for product %s",
+        creative_id,
+        pin_id,
+        body.research_product_id,
+    )
+
+    return PublishingActionResponse(
+        success=True,
+        pin_id=pin_id,
+        content=content,
+    )
+
+
+@app.post(
+    "/publishing/remove",
+    response_model=PublishingActionResponse,
+)
+def remove_queued_creative_endpoint(
+    body: PublishingRemoveRequest,
+) -> PublishingActionResponse:
+    """
+    Remove a creative from the publishing queue.
+
+    Cancels the active queue item (preserving the audit trail) and
+    flips the creative back to APPROVED so Creative Studio unlocks it.
+    """
+    try:
+        rows = fetch_creatives_workflow(body.research_product_id)
+        workflow = rows[0] if rows else None
+        if workflow is None or workflow.get("creative_id") is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"No creative exists for research product "
+                    f"{body.research_product_id}."
+                ),
+            )
+
+        ai_content_id = workflow.get("ai_content_id")
+
+        if body.pin_id is not None:
+            pin_id = body.pin_id
+        else:
+            active = fetch_active_queue_by_ai_content(ai_content_id)
+            if not active:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        f"Creative for product {body.research_product_id} "
+                        "is not in the publishing queue."
+                    ),
+                )
+            pin_id = active[0]["pin_id"]
+
+        mark_queue_cancelled(pin_id)
+        unqueue_creative_from_publishing(body.research_product_id)
+    except HTTPException:
+        raise
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to remove creative from queue: {exc}",
+        ) from exc
+
+    logger.info(
+        "Removed pin %s from publishing (product %s)",
+        pin_id,
+        body.research_product_id,
+    )
+
+    return PublishingActionResponse(
+        success=True,
+        pin_id=pin_id,
+    )
+
+
+@app.post(
+    "/publishing/schedule",
+    response_model=PublishingActionResponse,
+)
+def schedule_queued_pin_endpoint(
+    body: PublishingScheduleRequest,
+) -> PublishingActionResponse:
+    """
+    Schedule a queued pin by flipping it to READY with a publish time.
+    """
+    item = fetch_queue_item_details(body.pin_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No queue item {body.pin_id}.",
+        )
+
+    try:
+        mark_queue_scheduled(body.pin_id, body.scheduled_at)
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to schedule pin: {exc}",
+        ) from exc
+
+    content = fetch_queue_item_details(body.pin_id)
+
+    logger.info(
+        "Scheduled pin %s for %s",
+        body.pin_id,
+        body.scheduled_at,
+    )
+
+    return PublishingActionResponse(
+        success=True,
+        pin_id=body.pin_id,
+        content=content,
+    )
+
+
+@app.post(
+    "/publishing/publish-now",
+    response_model=PublishingActionResponse,
+)
+def publish_queued_pin_now_endpoint(
+    body: PublishingPublishNowRequest,
+) -> PublishingActionResponse:
+    """
+    Publish a queued pin immediately through the Pinterest client.
+
+    Reuses the same joined read model and ``publish_pin`` call as the
+    publisher worker; on success the queue item is marked PUBLISHED.
+    """
+    item = fetch_queue_item_details(body.pin_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No queue item {body.pin_id}.",
+        )
+
+    if item.get("is_seed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Connect a Pinterest account before publishing. "
+                "The destination account is a sample account used for "
+                "local development."
+            ),
+        )
+
+    try:
+        success = publish_pin(
+            title=item["pinterest_title"],
+            description=item.get("pinterest_description") or "",
+            image_url=item.get("image_url") or "",
+            affiliate_url=item.get("affiliate_url") or "",
+            board_name=item.get("board_name") or "Pinterest",
+        )
+
+        if success:
+            mark_queue_published(body.pin_id)
+            unqueue_creative_from_publishing(
+                int(item["research_product_id"])
+            )
+        else:
+            mark_queue_failed(
+                body.pin_id,
+                "Publishing returned False.",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Publishing the pin failed.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        mark_queue_failed(body.pin_id, str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Publishing failed: {exc}",
+        ) from exc
+
+    content = fetch_queue_item_details(body.pin_id)
+
+    logger.info("Published pin %s", body.pin_id)
+
+    return PublishingActionResponse(
+        success=True,
+        pin_id=body.pin_id,
+        content=content,
+    )
+
+
+@app.post(
+    "/publishing/board",
+    response_model=PublishingActionResponse,
+)
+def update_queued_pin_board_endpoint(
+    body: PublishingBoardRequest,
+) -> PublishingActionResponse:
+    """
+    Change the destination account and board of a queued pin.
+    """
+    item = fetch_queue_item_details(body.pin_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No queue item {body.pin_id}.",
+        )
+
+    try:
+        update_queue_board(
+            body.pin_id,
+            body.account_id,
+            body.board_id,
+        )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This creative is already tied to that account and board. "
+                "Pick a different destination."
+            ),
+        ) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update pin board: {exc}",
+        ) from exc
+
+    content = fetch_queue_item_details(body.pin_id)
+
+    logger.info(
+        "Moved pin %s to account %s / board %s",
+        body.pin_id,
+        body.account_id,
+        body.board_id,
+    )
+
+    return PublishingActionResponse(
+        success=True,
+        pin_id=body.pin_id,
+        content=content,
+    )
+
+
+@app.get("/publishing/download/{creative_id}")
+def download_creative_image(
+    creative_id: int,
+) -> FileResponse:
+    """
+    Stream a creative's stored PNG for download.
+
+    Reads the path already persisted on ``creative_assets.image_path``
+    rather than re-rendering the creative, so the downloaded pin exactly
+    matches what is queued.
+    """
+    image_path = fetch_creative_image_path(creative_id)
+
+    if not image_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No image stored for creative {creative_id}.",
+        )
+
+    path = Path(image_path)
+
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Creative image file not found: {path.name}",
+        )
+
+    return FileResponse(
+        path,
+        media_type="image/png",
     )
 
 

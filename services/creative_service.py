@@ -710,6 +710,71 @@ def approve_creative_for_product(
     return creative_id
 
 
+def queue_creative_for_publishing(
+    research_product_id: int,
+) -> int | None:
+    """
+    Transition an approved creative into the publishing queue.
+
+    Only flips the workflow ``status`` (APPROVED -> QUEUED); every
+    editorial decision (headline, description, CTA, template, variant,
+    overlay, logo position, properties) is preserved untouched.
+
+    Returns the queued ``creative_id``, or None when the product has
+    no creative to queue.
+
+    Raises:
+        CreativeLockedError:
+            If the creative is not currently approved.
+    """
+
+    latest = _latest_creative_for_product(research_product_id)
+
+    if latest is None:
+        return None
+
+    creative_id, status = latest
+
+    if status != "APPROVED":
+        raise CreativeLockedError(
+            f"Creative {creative_id} is {status} and cannot be queued "
+            "for publishing. Only approved creatives can be queued."
+        )
+
+    _update_creative_status(creative_id, "QUEUED")
+
+    return creative_id
+
+
+def unqueue_creative_from_publishing(
+    research_product_id: int,
+) -> int | None:
+    """
+    Return a queued creative to the approved state.
+
+    Frees a creative that was previously placed in the publishing
+    queue, flipping ``status`` (QUEUED -> APPROVED) so the creative
+    becomes editable again in the Creative Studio.
+
+    Returns the ``creative_id``, or None when the product has no
+    queued creative to release.
+    """
+
+    latest = _latest_creative_for_product(research_product_id)
+
+    if latest is None:
+        return None
+
+    creative_id, status = latest
+
+    if status != "QUEUED":
+        return creative_id
+
+    _update_creative_status(creative_id, "APPROVED")
+
+    return creative_id
+
+
 def reopen_creative_for_review(
     research_product_id: int,
 ) -> int | None:
@@ -746,9 +811,36 @@ def reopen_creative_for_review(
         )
 
     if status == "APPROVED":
-        mark_creative_generated(creative_id)
+        _update_creative_status(creative_id, "GENERATED")
 
     return creative_id
+
+
+def _update_creative_status(
+    creative_id: int,
+    status: str,
+) -> None:
+    """
+    Set a creative's workflow status directly.
+    """
+
+    query = """
+    UPDATE creative_assets
+    SET status = ?
+    WHERE creative_id = ?
+    """
+
+    with get_connection() as connection:
+
+        connection.execute(
+            query,
+            (
+                status,
+                creative_id,
+            ),
+        )
+
+        connection.commit()
 
 
 def mark_creative_failed(
@@ -857,6 +949,32 @@ def delete_creative(
         )
 
         connection.commit()
+
+
+def fetch_creative_image_path(
+    creative_id: int,
+) -> str | None:
+    """
+    Return the stored image path of a creative asset, if any.
+    """
+
+    query = """
+    SELECT image_path
+    FROM creative_assets
+    WHERE creative_id = ?
+    """
+
+    with get_connection() as connection:
+
+        row = connection.execute(
+            query,
+            (creative_id,),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    return row[0]
 
 
 # ---------------------------------------------------------------------

@@ -2,7 +2,6 @@
 
 import { cn } from "@/lib/utils";
 import { ProductImage } from "@/features/products/product-image";
-import { BOARD_BY_ID } from "./mock-data";
 import { PublishingStatusBadge } from "./publishing-status-badge";
 import type { PublishItem, PublishPriority } from "./types";
 
@@ -51,9 +50,7 @@ export function PublishingQueue({
         <ol className="flex flex-col gap-1.5">
           {items.map((item) => {
             const selected = item.id === selectedId;
-            const boardName = item.boardId
-              ? BOARD_BY_ID[item.boardId]?.name
-              : null;
+            const boardName = item.boardName;
 
             return (
               <li key={item.id}>

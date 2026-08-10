@@ -32,7 +32,7 @@ export function getPublishCounts(
   for (const publication of publications) {
     if (publication.status === "published") counts.published += 1;
     else if (publication.status === "scheduled") counts.scheduled += 1;
-    else counts.failed += 1;
+    else if (publication.status === "failed") counts.failed += 1;
   }
 
   return counts;

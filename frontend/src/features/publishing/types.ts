@@ -7,7 +7,7 @@ export type PublishPriority = "high" | "medium" | "low";
 
 export type PublishQueueStatus = "queued" | "scheduled";
 
-export type PublicationStatus = "published" | "scheduled" | "failed";
+export type PublicationStatus = "published" | "scheduled" | "failed" | "cancelled";
 
 export type PinterestBoard = {
   id: string;
@@ -25,8 +25,10 @@ export type PublishItem = {
   priority: PublishPriority;
   status: PublishQueueStatus;
   boardId: string | null;
+  boardName: string | null;
   scheduledAt: string | null;
   templateId: TemplateId;
+  creativeId: number | null;
   properties: CreativeProperties;
 };
 

@@ -29,6 +29,11 @@ export const PUBLISH_STATUS_META: Record<
       "border-red-500/25 bg-red-500/10 text-red-600 dark:text-red-400",
     dotClass: "bg-red-500",
   },
+  cancelled: {
+    label: "Cancelled",
+    badgeClass: "border-border bg-muted/60 text-muted-foreground",
+    dotClass: "bg-muted-foreground",
+  },
 };
 
 type PublishingStatusBadgeProps = {

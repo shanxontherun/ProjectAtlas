@@ -38,6 +38,7 @@ import {
   useReopenCreative,
   useSaveCreative,
 } from "./use-creatives";
+import { useQueueCreative, useRemoveCreative } from "@/features/publishing/use-publishing";
 import type {
   CreativeItem,
   CreativeProperties,
@@ -73,6 +74,8 @@ export function CreativeStudio() {
   const approveMutation = useApproveCreative();
   const saveMutation = useSaveCreative();
   const reopenMutation = useReopenCreative();
+  const queueMutation = useQueueCreative();
+  const removeQueueMutation = useRemoveCreative();
 
   // Transient presentation states (generating / queued) and local
   // variant, template and property edits live in the browser until the
@@ -208,10 +211,30 @@ export function CreativeStudio() {
     }
   }
 
-  function queueForPublishing() {
-    if (!selectedItem || selectedItem.status === "queued") return;
+  async function queueForPublishing() {
+    if (!selectedItem || isLocked(selectedItem)) return;
     patchTransient(selectedItem.id, { status: "queued" });
-    showFeedback("Queued for publishing.");
+    try {
+      await queueMutation.mutateAsync(Number(selectedItem.id));
+      clearTransient(selectedItem.id);
+      showFeedback("Queued for publishing.");
+    } catch {
+      clearTransient(selectedItem.id);
+      showFeedback("Couldn't queue this creative");
+    }
+  }
+
+  async function removeFromQueue() {
+    if (!selectedItem || selectedItem.status !== "queued") return;
+    patchTransient(selectedItem.id, { status: "approved" });
+    try {
+      await removeQueueMutation.mutateAsync(Number(selectedItem.id));
+      clearTransient(selectedItem.id);
+      showFeedback("Removed from the publishing queue — editable again.");
+    } catch {
+      clearTransient(selectedItem.id);
+      showFeedback("Couldn't remove this creative from the queue");
+    }
   }
 
   function requestReturnToReview() {
@@ -368,6 +391,7 @@ export function CreativeStudio() {
             onRegenerate={regenerate}
             onGenerateVariants={generateVariants}
             onQueue={queueForPublishing}
+            onRemoveFromQueue={removeFromQueue}
             onReturnToReview={requestReturnToReview}
           />
         </>

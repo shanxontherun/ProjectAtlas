@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, LayoutGrid, Send, Zap } from "lucide-react";
+import { CalendarClock, Download, LayoutGrid, Send, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,11 +22,13 @@ type PublishConsoleProps = {
   scheduleValue: string;
   canSchedule: boolean;
   scheduleInvalid: boolean;
+  hasRealAccount: boolean;
   onTimingChange: (mode: PublishTimingMode) => void;
   onScheduleChange: (value: string) => void;
   onSelectBoard: (boardId: string) => void;
   onPublishNow: () => void;
   onSchedule: () => void;
+  onDownload: () => void;
   feedback: string | null;
 };
 
@@ -37,11 +39,13 @@ export function PublishConsole({
   scheduleValue,
   canSchedule,
   scheduleInvalid,
+  hasRealAccount,
   onTimingChange,
   onScheduleChange,
   onSelectBoard,
   onPublishNow,
   onSchedule,
+  onDownload,
   feedback,
 }: PublishConsoleProps) {
   if (!item) {
@@ -208,7 +212,16 @@ export function PublishConsole({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        <Button type="button" onClick={onPublishNow}>
+        <Button
+          type="button"
+          onClick={onPublishNow}
+          disabled={!hasRealAccount}
+          title={
+            hasRealAccount
+              ? "Publish this pin now"
+              : "Connect a Pinterest account before publishing"
+          }
+        >
           <Send data-icon="inline-start" className="size-4" />
           Publish Now
         </Button>
@@ -221,7 +234,23 @@ export function PublishConsole({
           <CalendarClock data-icon="inline-start" className="size-4" />
           Schedule
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={item.creativeId === null}
+          onClick={onDownload}
+          title="Download the pin image"
+        >
+          <Download data-icon="inline-start" className="size-4" />
+          Download Pin
+        </Button>
       </div>
+
+      {!hasRealAccount && (
+        <p className="-mt-2 text-xs font-medium text-muted-foreground">
+          Connect a Pinterest account before publishing.
+        </p>
+      )}
 
       {feedback && (
         <p className="-mt-2 text-xs font-medium text-primary">{feedback}</p>

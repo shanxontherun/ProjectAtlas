@@ -19,11 +19,13 @@ const ICONS: Record<string, LucideIcon> = {
 type PublishingSummaryProps = {
   counts: PublishCounts;
   boardsCount: number;
+  hasRealAccount: boolean;
 };
 
 export function PublishingSummary({
   counts,
   boardsCount,
+  hasRealAccount,
 }: PublishingSummaryProps) {
   const metrics: Metric[] = [
     {
@@ -47,15 +49,17 @@ export function PublishingSummary({
       id: "published",
       label: "Published",
       value: String(counts.published),
-      delta: "Across your boards",
-      deltaTone: "positive",
+      delta: hasRealAccount
+        ? "Across your boards"
+        : "Connect a Pinterest account to publish",
+      deltaTone: hasRealAccount ? "positive" : "neutral",
     },
     {
       id: "boards",
       label: "Boards",
       value: String(boardsCount),
-      delta: "Connected to Pinterest",
-      deltaTone: "positive",
+      delta: "Configured boards",
+      deltaTone: "neutral",
     },
   ];
 

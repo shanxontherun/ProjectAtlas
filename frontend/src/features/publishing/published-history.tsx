@@ -1,32 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { Link2, LayoutGrid } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { LayoutGrid } from "lucide-react";
 import { SectionCard } from "@/features/dashboard/section-card";
 import { ProductImage } from "@/features/products/product-image";
 import { formatPublishTime, relativeTime } from "./publishing-utils";
 import { PublishingStatusBadge } from "./publishing-status-badge";
 import type { Publication } from "./types";
 
-function pinLink(publication: Publication) {
-  return `https://pin.it/atlas-${publication.id}`;
-}
-
 type PublishedHistoryProps = {
   publications: Publication[];
 };
 
 export function PublishedHistory({ publications }: PublishedHistoryProps) {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  function copyLink(publication: Publication) {
-    navigator.clipboard?.writeText(pinLink(publication)).catch(() => undefined);
-    setCopiedId(publication.id);
-    window.setTimeout(() => {
-      setCopiedId((current) => (current === publication.id ? null : current));
-    }, 1600);
-  }
 
   return (
     <SectionCard
@@ -40,9 +25,10 @@ export function PublishedHistory({ publications }: PublishedHistoryProps) {
     >
       {publications.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-muted/30 px-4 py-10 text-center">
-          <p className="text-sm font-medium">No publications yet</p>
+          <p className="text-sm font-medium">No Pins published yet</p>
           <p className="max-w-[20rem] text-xs text-muted-foreground">
-            Pins you publish or schedule will appear here.
+            Connect a Pinterest account and publish a pin for it to appear
+            here.
           </p>
         </div>
       ) : (
@@ -76,21 +62,6 @@ export function PublishedHistory({ publications }: PublishedHistoryProps) {
               </span>
 
               <PublishingStatusBadge status={publication.status} />
-
-              {publication.status === "published" && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => copyLink(publication)}
-                  aria-label={`Copy link for ${publication.productName}`}
-                  title="Copy pin link"
-                  className="shrink-0"
-                >
-                  <Link2 data-icon="inline-start" className="size-3.5" />
-                  {copiedId === publication.id ? "Copied" : "Copy link"}
-                </Button>
-              )}
             </li>
           ))}
         </ul>

@@ -74,6 +74,25 @@ def fetch_boards_by_account(
     return [dict(row) for row in rows]
 
 
+def fetch_active_boards() -> list[dict[str, Any]]:
+    """
+    Return every active board across all accounts.
+    """
+
+    query = """
+    SELECT *
+    FROM pinterest_boards
+    WHERE status='ACTIVE'
+    ORDER BY account_id, board_name
+    """
+
+    with get_connection() as connection:
+
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
+
 def fetch_board(
     board_id: int,
 ) -> dict[str, Any] | None:

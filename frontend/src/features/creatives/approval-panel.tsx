@@ -35,6 +35,7 @@ type ApprovalPanelProps = {
   onRegenerate: () => void;
   onGenerateVariants: () => void;
   onQueue: () => void;
+  onRemoveFromQueue: () => void;
   onReturnToReview: () => void;
 };
 
@@ -45,10 +46,12 @@ export function ApprovalPanel({
   onRegenerate,
   onGenerateVariants,
   onQueue,
+  onRemoveFromQueue,
   onReturnToReview,
 }: ApprovalPanelProps) {
   const needsReview = item?.status === "needs-review";
   const approved = item?.status === "approved";
+  const queued = item?.status === "queued";
 
   return (
     <section className="rounded-xl border border-border bg-card p-4">
@@ -114,7 +117,17 @@ export function ApprovalPanel({
                 Return to Review
               </Button>
             )}
-            {(needsReview || approved) && (
+            {queued && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onRemoveFromQueue}
+              >
+                <Undo2 data-icon="inline-start" className="size-4" />
+                Remove from Queue
+              </Button>
+            )}
+            {approved && (
               <Button type="button" variant="secondary" onClick={onQueue}>
                 <Send data-icon="inline-start" className="size-4" />
                 Queue for Publishing

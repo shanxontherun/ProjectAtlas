@@ -136,8 +136,10 @@ function buildPublishItem(
     priority: plan.priority,
     status: plan.status,
     boardId: plan.boardId,
+    boardName: plan.boardId ? (BOARD_BY_ID[plan.boardId]?.name ?? null) : null,
     scheduledAt: plan.scheduledAt ?? null,
     templateId: plan.templateId,
+    creativeId: null,
     properties: {
       headline: makeHeadline(prod.name),
       cta: DEFAULT_CTA,
