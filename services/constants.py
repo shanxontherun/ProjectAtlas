@@ -91,3 +91,40 @@ AI_PROVIDER_OPENROUTER = "OpenRouter"
 AI_PROVIDER_GEMINI = "Gemini"
 AI_PROVIDER_OPENAI = "OpenAI"
 AI_PROVIDER_CUSTOM = "Custom AI Gateway"
+
+
+# --------------------------------------------------
+# Pinterest OAuth (ATLAS-029C)
+# --------------------------------------------------
+# Credential types stored in connection_credentials (server-side only,
+# never returned by the API). Values are secrets and must never be logged.
+
+CREDENTIAL_PINTEREST_ACCESS_TOKEN = "pinterest_access_token"
+CREDENTIAL_PINTEREST_REFRESH_TOKEN = "pinterest_refresh_token"
+CREDENTIAL_PINTEREST_TOKEN_EXPIRES_AT = "pinterest_token_expires_at"
+CREDENTIAL_PINTEREST_SCOPE = "pinterest_scope"
+
+# OAuth state lifetime (seconds): enough for a user to authorize on
+# Pinterest, short enough to bound replay risk.
+PINTEREST_STATE_TTL_SECONDS = 600
+
+# Minimal scopes needed by Atlas:
+#   user_accounts:read -> identify the authenticated Pinterest user
+#   boards:read       -> read the user's boards
+#   pins:read         -> future Pin publishing (read side)
+#   pins:write        -> future Pin publishing (create side)
+# Requested at authorization and, when applicable, at refresh time.
+PINTEREST_OAUTH_SCOPES = "user_accounts:read,boards:read,pins:read,pins:write"
+
+# Pinterest OAuth endpoints (current official values).
+PINTEREST_AUTHORIZE_URL = "https://www.pinterest.com/oauth/"
+PINTEREST_TOKEN_URL = "https://api.pinterest.com/v5/oauth/token"
+PINTEREST_API_BASE = "https://api.pinterest.com/v5"
+PINTEREST_USER_ENDPOINT = PINTEREST_API_BASE + "/user_account"
+PINTEREST_BOARDS_ENDPOINT = PINTEREST_API_BASE + "/boards"
+
+# Env variables that configure the Pinterest OAuth app. Secrets must never
+# be read into logs, responses, or the DOM.
+PINTEREST_CLIENT_ID_ENV = "PINTEREST_CLIENT_ID"
+PINTEREST_CLIENT_SECRET_ENV = "PINTEREST_CLIENT_SECRET"
+PINTEREST_REDIRECT_URI_ENV = "PINTEREST_REDIRECT_URI"

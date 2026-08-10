@@ -13,8 +13,8 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 # Ensure the workspace root is importable so services can be referenced
@@ -67,6 +67,17 @@ from services.category_routes import (
 )
 from services.accounts_service import fetch_accounts
 from services.pinterest_client import publish_pin
+from services.pinterest_oauth import (
+    PinterestConfigError,
+    PinterestDeniedError,
+    PinterestOAuthError,
+    PinterestStateError,
+    complete_pinterest_connect,
+    start_pinterest_connect,
+)
+from services.accounts_service import (
+    disconnect_pinterest_connection,
+)
 from services.queue_service import (
     create_queue_item,
     fetch_active_queue_by_ai_content,
@@ -403,6 +414,25 @@ class PublishingActionResponse(BaseModel):
     success: bool
     pin_id: int | None = None
     content: dict[str, Any] | None = None
+
+
+class PinterestConnectResponse(BaseModel):
+    """Response returned when starting a Pinterest OAuth flow."""
+
+    authorization_url: str = Field(
+        ...,
+        description="Pinterest authorization URL the user should be sent to",
+    )
+
+
+class PinterestDisconnectRequest(BaseModel):
+    """Request body for disconnecting a Pinterest connection."""
+
+    connection_id: int = Field(
+        ...,
+        ge=1,
+        description="account_connections row to disconnect",
+    )
 
 
 @app.get("/health")
@@ -933,6 +963,171 @@ def get_accounts():
         ) from exc
 
 
+def _frontend_origin(request: Request) -> str:
+    """
+    Derive the frontend origin the OAuth callback should redirect back to.
+
+    The backend is normally reached through the frontend reverse proxy, so
+    the request Host + forwarded scheme identify the browser's origin.
+    """
+
+    host = request.headers.get("host", "")
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+
+    return f"{scheme}://{host}"
+
+
+def _oauth_redirect(
+    request: Request,
+    *,
+    status: str,
+    reason: str | None = None,
+) -> RedirectResponse:
+    """
+    Build the callback redirect back to the Accounts page.
+
+    Only safe status/reason codes reach the browser; OAuth details,
+    tokens and codes are never included. The callback never returns
+    credentials.
+    """
+
+    url = f"{_frontend_origin(request)}/accounts?pinterest={status}"
+
+    if reason:
+        url += f"&reason={reason}"
+
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get(
+    "/accounts/pinterest/connect",
+    response_model=PinterestConnectResponse,
+)
+def pinterest_connect() -> PinterestConnectResponse:
+    """
+    Start the Pinterest OAuth Authorization Code flow.
+
+    Generates and stores a cryptographically secure OAuth state and
+    returns the Pinterest authorization URL. The frontend navigates the
+    user to that URL; the exchange itself always happens server-side.
+
+    Returns a clear configuration error when PINTEREST_CLIENT_ID /
+    PINTEREST_CLIENT_SECRET / PINTEREST_REDIRECT_URI are missing.
+    """
+    try:
+        result = start_pinterest_connect()
+    except PinterestConfigError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+    except sqlite3.Error as exc:
+        logger.error("Failed to store Pinterest OAuth state: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start Pinterest OAuth.",
+        ) from exc
+
+    logger.info("Pinterest OAuth flow started.")
+
+    return PinterestConnectResponse(authorization_url=result["authorization_url"])
+
+
+@app.get("/accounts/pinterest/callback")
+def pinterest_callback(
+    request: Request,
+    state: str | None = None,
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> RedirectResponse:
+    """
+    Pinterest OAuth callback (redirect target of the authorization page).
+
+    Validates the state, then completes the flow server-side: code
+    exchange, authenticated-user fetch, connection + credentials
+    persistence, and board sync. Always redirects back to the Accounts
+    page with a safe status; credentials are never returned here.
+    """
+    try:
+        result = complete_pinterest_connect(
+            state=state,
+            code=code,
+            error=error,
+        )
+    except PinterestDeniedError:
+        logger.info("Pinterest OAuth was denied by the user.")
+        return _oauth_redirect(request, status="denied")
+    except PinterestStateError as exc:
+        logger.warning("Pinterest OAuth state rejected: %s", type(exc).__name__)
+        return _oauth_redirect(request, status="error", reason="state")
+    except PinterestOAuthError as exc:
+        logger.warning("Pinterest OAuth failed: %s", type(exc).__name__)
+        return _oauth_redirect(request, status="error", reason="oauth")
+    except sqlite3.Error as exc:
+        logger.error(
+            "Pinterest OAuth persistence failed: %s",
+            type(exc).__name__,
+        )
+        return _oauth_redirect(request, status="error", reason="storage")
+    except Exception:
+        logger.exception("Pinterest OAuth unexpected failure.")
+        return _oauth_redirect(request, status="error", reason="unknown")
+
+    outcome = result.get("status", "success")
+    status_label = "success" if outcome == "success" else "partial"
+
+    logger.info(
+        "Pinterest OAuth completed: status=%s boards_synced=%s",
+        status_label,
+        result.get("boards_synced"),
+    )
+
+    return _oauth_redirect(request, status=status_label)
+
+
+@app.post("/accounts/pinterest/disconnect")
+def pinterest_disconnect(
+    body: PinterestDisconnectRequest,
+) -> dict[str, Any]:
+    """
+    Disconnect a Pinterest connection.
+
+    Removes stored credentials server-side, marks the connection
+    DISCONNECTED, and preserves safe account metadata. Seed/sample
+    accounts are never modified.
+    """
+    try:
+        result = disconnect_pinterest_connection(body.connection_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except sqlite3.Error as exc:
+        logger.error(
+            "Failed to disconnect Pinterest connection: %s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to disconnect the Pinterest account.",
+        ) from exc
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pinterest connection not found.",
+        )
+
+    logger.info(
+        "Pinterest connection %s disconnected.",
+        body.connection_id,
+    )
+
+    return result
+
+
 @app.get("/publishing")
 def get_publishing():
     """
@@ -1248,6 +1443,18 @@ def publish_queued_pin_now_endpoint(
                 "local development."
             ),
         )
+
+    # Real (non-seed) Pinterest publishing is not implemented in this
+    # sprint. Refuse rather than running the simulation stub, which would
+    # fabricate a PUBLISHED record for a real account.
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Real Pinterest publishing isn't implemented yet. Pins can be "
+            "queued and scheduled, but publishing to a live Pinterest "
+            "account arrives in a future sprint."
+        ),
+    )
 
     try:
         success = publish_pin(

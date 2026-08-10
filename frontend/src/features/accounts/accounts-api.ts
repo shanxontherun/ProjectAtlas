@@ -18,6 +18,7 @@ export type AccountRow = {
   connectionStatus: ConnectionStatus;
   connectedAt: string | null;
   isSeed: boolean;
+  profileUrl: string | null;
 };
 
 export type AccountProviderGroup = {
@@ -77,6 +78,10 @@ export function mapAccount(row: unknown): AccountRow {
     connectedAt:
       typeof source.connected_at === "string" ? source.connected_at : null,
     isSeed: source.is_seed === true || source.is_seed === 1,
+    profileUrl:
+      typeof source.profile_url === "string" && source.profile_url
+        ? source.profile_url
+        : null,
   };
 }
 
@@ -106,4 +111,66 @@ export async function fetchAccounts(): Promise<AccountProviderGroup[]> {
     throw new Error("Unexpected accounts response");
   }
   return payload.map(mapProviderGroup);
+}
+
+export type PinterestConnectErrorKind = "config" | "network" | "unknown";
+
+export class PinterestConnectError extends Error {
+  kind: PinterestConnectErrorKind;
+
+  constructor(kind: PinterestConnectErrorKind, message: string) {
+    super(message);
+    this.name = "PinterestConnectError";
+    this.kind = kind;
+  }
+}
+
+export async function startPinterestConnect(): Promise<string> {
+  const response = await fetch("/api/accounts/pinterest/connect");
+
+  if (response.status === 503) {
+    throw new PinterestConnectError(
+      "config",
+      "Pinterest isn't configured on the server. Add PINTEREST_CLIENT_ID, " +
+        "PINTEREST_CLIENT_SECRET, and PINTEREST_REDIRECT_URI to enable it.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new PinterestConnectError(
+      "unknown",
+      `Failed to start Pinterest OAuth (${response.status})`,
+    );
+  }
+
+  const payload: unknown = await response.json();
+  const authorizationUrl =
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof (payload as Record<string, unknown>).authorization_url === "string"
+      ? ((payload as Record<string, unknown>).authorization_url as string)
+      : null;
+
+  if (!authorizationUrl) {
+    throw new PinterestConnectError(
+      "unknown",
+      "Pinterest OAuth returned an invalid response.",
+    );
+  }
+
+  return authorizationUrl;
+}
+
+export async function disconnectPinterestConnection(
+  connectionId: number,
+): Promise<void> {
+  const response = await fetch("/api/accounts/pinterest/disconnect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connection_id: connectionId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to disconnect Pinterest (${response.status})`);
+  }
 }

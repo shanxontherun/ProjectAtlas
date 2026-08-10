@@ -114,3 +114,81 @@ def fetch_board(
         ).fetchone()
 
     return dict(row) if row else None
+
+
+def sync_real_boards(
+    account_id: int,
+    boards: list[dict[str, Any]],
+) -> int:
+    """
+    Synchronize real Pinterest boards for an account (upsert, no dupes).
+
+    Each board is matched by its real Pinterest board ID. Existing boards
+    are updated in place (name, privacy, status); new boards are inserted
+    as ACTIVE real boards. Boards the account no longer has on Pinterest
+    are marked INACTIVE (they stay in the database for the audit trail).
+
+    Seed/test boards (``pinterest_board_id IS NULL``) are never touched,
+    and no follower/pin counts are invented — the schema defaults of 0 are
+    kept for real boards.
+
+    Args:
+        account_id: The real ``pinterest_accounts`` row to attach boards to.
+        boards: Safe board records (``id``, ``name``, optional ``privacy``).
+
+    Returns:
+        The number of boards upserted (one per item in ``boards``).
+
+    Raises:
+        sqlite3.Error: If a board cannot be persisted.
+    """
+
+    count = 0
+
+    connection = get_connection()
+    try:
+        connection.execute(
+            "UPDATE pinterest_boards"
+            " SET status = 'INACTIVE'"
+            " WHERE account_id = ? AND pinterest_board_id IS NOT NULL",
+            (account_id,),
+        )
+
+        for board in boards:
+            board_id = str(board.get("id") or "").strip()
+            board_name = str(board.get("name") or "").strip()
+            privacy = board.get("privacy")
+
+            if not board_id or not board_name:
+                continue
+
+            row = connection.execute(
+                "SELECT board_id FROM pinterest_boards"
+                " WHERE pinterest_board_id = ?",
+                (board_id,),
+            ).fetchone()
+
+            if row is not None:
+                connection.execute(
+                    "UPDATE pinterest_boards"
+                    " SET account_id = ?, board_name = ?, status = 'ACTIVE',"
+                    " category_slug = 'uncategorized', privacy = ?"
+                    " WHERE board_id = ?",
+                    (account_id, board_name, privacy, int(row["board_id"])),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO pinterest_boards ("
+                    " account_id, board_name, category_slug, status,"
+                    " privacy, pinterest_board_id"
+                    " ) VALUES (?, ?, 'uncategorized', 'ACTIVE', ?, ?)",
+                    (account_id, board_name, privacy, board_id),
+                )
+
+            count += 1
+
+        connection.commit()
+    finally:
+        connection.close()
+
+    return count

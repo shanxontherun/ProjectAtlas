@@ -20,9 +20,13 @@ def publish_pin(
     """
     Publish a Pinterest pin.
 
-    Returns:
-        True if publishing succeeds.
-        False otherwise.
+    Real Pinterest publishing is not implemented yet (ATLAS-029C only
+    makes real Pinterest accounts and boards available to Publishing). To
+    avoid fabricating PUBLISHED records for a real account, this raises
+    ``NotImplementedError`` instead of simulating success.
+
+    Raises:
+        NotImplementedError: Always, until the real publishing sprint.
     """
 
     print("=" * 60)
@@ -36,8 +40,12 @@ def publish_pin(
     print(f"Affiliate   : {affiliate_url}")
 
     print()
-    print("Publishing simulation successful.")
+    print("Real Pinterest publishing is not implemented.")
+    print("Refusing to fake a publish.")
     print("=" * 60)
 
-    return True
+    raise NotImplementedError(
+        "Real Pinterest publishing isn't implemented yet; "
+        "refusing to fake a publish."
+    )
     

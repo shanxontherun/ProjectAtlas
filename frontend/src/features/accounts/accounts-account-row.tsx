@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { Button } from "@/components/ui/button";
 import type { AccountRow, ConnectionStatus, ProviderId } from "./accounts-api";
 import { AccountStatusBadge } from "./accounts-status-badge";
 
@@ -81,9 +82,15 @@ export function sectionStatus(
 
 type AccountRowProps = {
   account: AccountRow;
+  disconnecting?: boolean;
+  onDisconnect?: (connectionId: number) => void;
 };
 
-export function AccountRowView({ account }: AccountRowProps) {
+export function AccountRowView({
+  account,
+  disconnecting = false,
+  onDisconnect,
+}: AccountRowProps) {
   const Icon = PROVIDER_ICONS[account.provider] ?? SparklesIcon;
 
   const meta = [
@@ -92,6 +99,11 @@ export function AccountRowView({ account }: AccountRowProps) {
   ]
     .filter(Boolean)
     .join(" · ");
+
+  const showDisconnect =
+    !account.isSeed &&
+    account.connectionId !== null &&
+    typeof onDisconnect === "function";
 
   return (
     <li className="flex items-center justify-between gap-4 rounded-xl border border-border bg-background/60 p-4">
@@ -113,9 +125,36 @@ export function AccountRowView({ account }: AccountRowProps) {
               {meta}
             </p>
           ) : null}
+          {account.profileUrl ? (
+            <a
+              href={account.profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-0.5 inline-block truncate text-xs text-primary underline-offset-4 hover:underline"
+            >
+              {account.profileUrl}
+            </a>
+          ) : null}
         </div>
       </div>
-      <AccountStatusBadge status={account.connectionStatus} />
+      <div className="flex shrink-0 items-center gap-2">
+        <AccountStatusBadge status={account.connectionStatus} />
+        {showDisconnect ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            disabled={disconnecting}
+            onClick={() => {
+              if (account.connectionId !== null) {
+                onDisconnect(account.connectionId);
+              }
+            }}
+          >
+            {disconnecting ? "Disconnecting..." : "Disconnect"}
+          </Button>
+        ) : null}
+      </div>
     </li>
   );
 }

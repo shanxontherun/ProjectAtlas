@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ACCOUNTS_QUERY_KEY, useAccounts } from "./use-accounts";
 import { AccountProviderSection } from "./accounts-provider-section";
+import { AccountsOAuthBanner } from "./accounts-oauth-banner";
 import { AccountsSkeleton } from "./accounts-skeleton";
 
 export function AccountsPage() {
@@ -71,6 +72,10 @@ export function AccountsPage() {
           Refresh
         </Button>
       </header>
+
+      <Suspense fallback={null}>
+        <AccountsOAuthBanner />
+      </Suspense>
 
       {groups.length === 0 ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed bg-card/50 px-6 py-16 text-center">
