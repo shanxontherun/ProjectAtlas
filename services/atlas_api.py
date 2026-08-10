@@ -65,6 +65,7 @@ from services.pinterest_boards import (
 from services.category_routes import (
     fetch_routes_by_category,
 )
+from services.accounts_service import fetch_accounts
 from services.pinterest_client import publish_pin
 from services.queue_service import (
     create_queue_item,
@@ -911,6 +912,25 @@ def save_creative_for_product(
         creative_id=creative_id,
         content=updated,
     )
+
+
+@app.get("/accounts")
+def get_accounts():
+    """
+    Return the Accounts read model grouped by provider.
+
+    Safe metadata only: provider, display name, username, marketplace,
+    connection status, connected_at and is_seed. Credentials (OAuth
+    tokens, API keys, Amazon secrets) are never returned; they live
+    server-side only.
+    """
+    try:
+        return fetch_accounts()
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch accounts: {exc}",
+        ) from exc
 
 
 @app.get("/publishing")

@@ -40,3 +40,54 @@ QUEUE_FAILED = "FAILED"
 
 STATUS_ACTIVE = "ACTIVE"
 STATUS_INACTIVE = "INACTIVE"
+
+
+# --------------------------------------------------
+# Integration Providers (Accounts Foundation)
+# --------------------------------------------------
+
+PROVIDER_PINTEREST = "PINTEREST"
+PROVIDER_AMAZON_ASSOCIATES = "AMAZON_ASSOCIATES"
+PROVIDER_AI = "AI"
+
+PROVIDERS = (
+    PROVIDER_PINTEREST,
+    PROVIDER_AMAZON_ASSOCIATES,
+    PROVIDER_AI,
+)
+
+
+# --------------------------------------------------
+# Connection Status (Accounts Foundation)
+# --------------------------------------------------
+# is_seed and connection_status are separate concepts. A non-seed account is
+# NOT automatically connected; only an explicit CONNECTED state means a real
+# external connection exists.
+
+CONNECTION_NOT_CONFIGURED = "NOT_CONFIGURED"
+CONNECTION_NOT_CONNECTED = "NOT_CONNECTED"
+CONNECTION_CONNECTING = "CONNECTING"
+CONNECTION_CONNECTED = "CONNECTED"
+CONNECTION_ERROR = "ERROR"
+CONNECTION_DISCONNECTED = "DISCONNECTED"
+CONNECTION_CONFIGURED = "CONFIGURED"
+
+CONNECTION_STATUSES = (
+    CONNECTION_NOT_CONFIGURED,
+    CONNECTION_NOT_CONNECTED,
+    CONNECTION_CONNECTING,
+    CONNECTION_CONNECTED,
+    CONNECTION_ERROR,
+    CONNECTION_DISCONNECTED,
+    CONNECTION_CONFIGURED,
+)
+
+
+# --------------------------------------------------
+# AI Providers (safe labels only; config lives in env)
+# --------------------------------------------------
+
+AI_PROVIDER_OPENROUTER = "OpenRouter"
+AI_PROVIDER_GEMINI = "Gemini"
+AI_PROVIDER_OPENAI = "OpenAI"
+AI_PROVIDER_CUSTOM = "Custom AI Gateway"

@@ -6,6 +6,39 @@ This project follows semantic versioning.
 
 ---
 
+## [0.9.1] - 2026-08-10
+
+### Added
+- ATLAS-029B: Accounts Foundation — Accounts becomes the source of truth
+  for external integrations (Pinterest, Amazon Associates, AI Providers)
+- `GET /accounts` read-only endpoint returning provider-grouped **safe
+  metadata only** (provider, display name, username, marketplace,
+  connection status, connected_at, is_seed); credentials are never returned
+- `sql/019_create_accounts_foundation.sql`: `account_connections` (account
+  + connection status) and server-side-only `connection_credentials`;
+  existing `pinterest_accounts` are reused (no duplicate Pinterest tables)
+- Explicit connection-status model (NOT_CONFIGURED / NOT_CONNECTED /
+  CONNECTING / CONNECTED / ERROR / DISCONNECTED / CONFIGURED); `is_seed`
+  stays separate from connection status — seed accounts are never presented
+  as connected
+- Backend-driven Accounts page (`features/accounts/`) with loading,
+  error + retry, empty, and refresh states; sample Pinterest accounts shown
+  as "Not connected / Sample", Amazon "Not configured", AI providers
+  "Configured / Not configured" derived from existing env config
+- `tests/test_accounts_foundation.py` (12 checks) + browser QA on the
+  preview host with zero console errors
+
+### Changed
+- `frontend/src/app/(app)/accounts/page.tsx` now renders the backend-driven
+  `AccountsPage` instead of the static placeholder
+- `services/constants.py` gained provider and connection-status constants
+
+### Security
+- OAuth tokens, API keys, Amazon secrets, and Associate Tag are never
+  returned to the frontend; AI env values are existence-checked only
+
+---
+
 ## [0.9.0] - 2026-08-07
 
 ### Changed

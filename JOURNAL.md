@@ -2,6 +2,65 @@
 
 ---
 
+# 2026-08-10 (ATLAS-029B)
+
+## Goal
+
+Build the Accounts Foundation: make Accounts Atlas's central source of
+truth for external integrations (Pinterest, Amazon Associates, AI
+Providers), establishing an explicit Account / Connection / Credential
+model with honest connection statuses, without implementing OAuth, Amazon
+integration, or publishing changes.
+
+## Accomplished
+
+- Audited the repo before coding: 029A's seed handling (`sql/017`, `018`),
+  the four existing Pinterest tables, AI env config (`AI_BASE_URL` /
+  `AI_API_KEY` / `AI_MODEL`), and the existing feature-folder patterns.
+- Migration `sql/019_create_accounts_foundation.sql` (additive,
+  idempotent): `account_connections` (provider, display name, username,
+  marketplace, connection_status, connected_at, is_seed, optional
+  `pinterest_account_id` FK reusing `pinterest_accounts`) plus
+  server-side-only `connection_credentials`. Seeds every existing Pinterest
+  account as NOT_CONNECTED.
+- Backend: `services/accounts_service.py` (safe-metadata read model,
+  explicit safe-column SELECTs, env-derived AI status via existence checks
+  only) and `GET /accounts` in `services/atlas_api.py`; provider/status
+  constants in `services/constants.py`.
+- Frontend: `features/accounts/` (api mappers, TanStack Query hook, page,
+  provider sections, account rows, status badge, skeleton) replacing the
+  static placeholder; loading/error/empty/retry/refresh states; dark/light
+  themes.
+- Tests: `tests/test_accounts_foundation.py` (12/12) proving seed !=
+  connected, non-seed accounts are not auto-connected, AI env status, and
+  no credential fields in the read model.
+- Verified: lint 0, tsc clean, build clean; Playwright browser QA on the
+  preview host — `/accounts` backend-driven, "Not connected" (never
+  Connected), sample tags, disabled CTAs, refresh, error + retry recovery,
+  regression on `/`, `/products`, `/content`, `/creatives`, `/publishing`
+  with zero console errors. Screenshots added to
+  `frontend/public/screenshots/`.
+- Docs: `docs/ATLAS-029B-deliverables.md`, CHANGELOG 0.9.1, this entry.
+
+## Lessons
+
+- `is_seed` and connection_status are two separate axes; conflating them
+  caused the original 029A bug and is now structurally prevented.
+- Minimal architecture wins: one connection table + a server-only
+  credential table + env-derived AI status avoids a second credential
+  system while supporting future phases.
+- The migration runner re-applies every `sql/*.sql` on each run, so new
+  migrations must be idempotent and old non-idempotent seeds mean applying
+  new migrations individually on an existing DB.
+
+## Next Session
+
+- ATLAS-029C: Pinterest OAuth — create real connections (CONNECTED), store
+  tokens in `connection_credentials`, verify live status, and replace the
+  `publish_pin` simulation stub.
+
+---
+
 # 2026-08-07 (ATLAS-028)
 
 ## Goal
