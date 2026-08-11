@@ -26,7 +26,6 @@ if str(_WORKSPACE_ROOT) not in sys.path:
 from database import (
     claim_next_pending_job,
     create_job,
-    fetch_all_categories,
     update_job_status,
     insert_research_product,
     fetch_all_research_products,
@@ -61,9 +60,22 @@ from services.pinterest_accounts import (
 )
 from services.pinterest_boards import (
     fetch_active_boards,
+    fetch_active_boards_with_accounts,
+    fetch_boards_by_account,
 )
 from services.category_routes import (
     fetch_routes_by_category,
+)
+from services.categories_service import (
+    add_category_route,
+    create_category,
+    fetch_category,
+    fetch_category_route,
+    list_categories,
+    list_category_routes,
+    set_category_status,
+    update_category,
+    update_category_route,
 )
 from services.accounts_service import fetch_accounts
 from services.pinterest_client import publish_pin
@@ -435,6 +447,47 @@ class PinterestDisconnectRequest(BaseModel):
     )
 
 
+class CategoryCreateRequest(BaseModel):
+    """Request body for creating a category."""
+
+    name: str = Field(..., min_length=1, description="Display name")
+    slug: str | None = Field(
+        default=None,
+        description="Optional slug; derived from the name when omitted",
+    )
+    priority: int = Field(default=5, ge=1, description="Higher runs sooner")
+    daily_target: int = Field(default=5, ge=0, description="Pins per day")
+    status: Literal["ACTIVE", "INACTIVE"] = Field(
+        default="ACTIVE",
+        description="ACTIVE or archived (INACTIVE)",
+    )
+
+
+class CategoryUpdateRequest(BaseModel):
+    """Request body for editing a category (all fields optional)."""
+
+    name: str | None = Field(default=None, min_length=1)
+    slug: str | None = Field(default=None)
+    priority: int | None = Field(default=None, ge=1)
+    daily_target: int | None = Field(default=None, ge=0)
+    status: Literal["ACTIVE", "INACTIVE"] | None = Field(default=None)
+
+
+class CategoryRouteCreateRequest(BaseModel):
+    """Request body for linking a category to an account and board."""
+
+    account_id: int = Field(..., ge=1)
+    board_id: int = Field(..., ge=1)
+    priority: int = Field(default=1, ge=1)
+
+
+class CategoryRouteUpdateRequest(BaseModel):
+    """Request body for editing a category route."""
+
+    priority: int | None = Field(default=None, ge=1)
+    status: Literal["ACTIVE", "INACTIVE"] | None = Field(default=None)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     """Liveness check used by local tooling and orchestrators."""
@@ -446,9 +499,9 @@ def health() -> dict[str, str]:
 
 @app.get("/categories")
 def get_categories() -> list[dict[str, Any]]:
-    """Return all categories from the Atlas SQLite database."""
+    """Return all categories with their route counts, highest priority first."""
     try:
-        return fetch_all_categories()
+        return list_categories()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -456,6 +509,301 @@ def get_categories() -> list[dict[str, Any]]:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch categories: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/categories",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_category_endpoint(
+    body: CategoryCreateRequest,
+) -> dict[str, Any]:
+    """Create a category and return the stored row."""
+    try:
+        category_id = create_category(
+            name=body.name,
+            slug=body.slug,
+            priority=body.priority,
+            daily_target=body.daily_target,
+            status=body.status,
+        )
+        category = fetch_category(category_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create category: {exc}",
+        ) from exc
+
+    if category is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Category {category_id} not found.",
+        )
+
+    logger.info("Created category %s (%s)", category_id, body.name)
+
+    return category
+
+
+@app.get("/categories/{category_id}")
+def get_category(category_id: int) -> dict[str, Any]:
+    """Return a single category with its route counts."""
+    try:
+        category = fetch_category(category_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch category: {exc}",
+        ) from exc
+
+    if category is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Category {category_id} not found.",
+        )
+
+    return category
+
+
+@app.patch("/categories/{category_id}")
+def update_category_endpoint(
+    category_id: int,
+    body: CategoryUpdateRequest,
+) -> dict[str, Any]:
+    """Edit a category's fields."""
+    try:
+        updated = update_category(
+            category_id=category_id,
+            name=body.name,
+            slug=body.slug,
+            priority=body.priority,
+            daily_target=body.daily_target,
+            status=body.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update category: {exc}",
+        ) from exc
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Category {category_id} not found.",
+        )
+
+    logger.info("Updated category %s", category_id)
+
+    return updated
+
+
+@app.post("/categories/{category_id}/archive")
+def archive_category_endpoint(category_id: int) -> dict[str, Any]:
+    """Archive a category (status INACTIVE)."""
+    try:
+        updated = set_category_status(category_id, "INACTIVE")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to archive category: {exc}",
+        ) from exc
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Category {category_id} not found.",
+        )
+
+    logger.info("Archived category %s", category_id)
+
+    return updated
+
+
+@app.post("/categories/{category_id}/activate")
+def activate_category_endpoint(category_id: int) -> dict[str, Any]:
+    """Activate an archived category (status ACTIVE)."""
+    try:
+        updated = set_category_status(category_id, "ACTIVE")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to activate category: {exc}",
+        ) from exc
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Category {category_id} not found.",
+        )
+
+    logger.info("Activated category %s", category_id)
+
+    return updated
+
+
+@app.get("/categories/{category_id}/routes")
+def get_category_routes(
+    category_id: int,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
+    """Return the account/board routes of a category."""
+    try:
+        if fetch_category(category_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category {category_id} not found.",
+            )
+
+        return list_category_routes(
+            category_id,
+            include_inactive=include_inactive,
+        )
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch category routes: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/categories/{category_id}/routes",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_category_route_endpoint(
+    category_id: int,
+    body: CategoryRouteCreateRequest,
+) -> dict[str, Any]:
+    """Link a category to a Pinterest account and board."""
+    try:
+        if fetch_category(category_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category {category_id} not found.",
+            )
+
+        route_id = add_category_route(
+            category_id=category_id,
+            account_id=body.account_id,
+            board_id=body.board_id,
+            priority=body.priority,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create category route: {exc}",
+        ) from exc
+
+    logger.info(
+        "Routed category %s to account %s / board %s (route %s)",
+        category_id,
+        body.account_id,
+        body.board_id,
+        route_id,
+    )
+
+    return fetch_category_route(route_id)
+
+
+@app.patch("/categories/{category_id}/routes/{route_id}")
+def update_category_route_endpoint(
+    category_id: int,
+    route_id: int,
+    body: CategoryRouteUpdateRequest,
+) -> dict[str, Any]:
+    """Update a route's priority and/or archive/restore it."""
+    try:
+        if fetch_category(category_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category {category_id} not found.",
+            )
+
+        updated = update_category_route(
+            route_id=route_id,
+            priority=body.priority,
+            status=body.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update category route: {exc}",
+        ) from exc
+
+    if updated is None or updated["category_id"] != category_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Route {route_id} not found for category {category_id}.",
+        )
+
+    logger.info("Updated category route %s", route_id)
+
+    return updated
+
+
+@app.get("/boards")
+def get_boards() -> list[dict[str, Any]]:
+    """Return every active Pinterest board with its account details."""
+    try:
+        return fetch_active_boards_with_accounts()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch boards: {exc}",
+        ) from exc
+
+
+@app.get("/accounts/{account_id}/boards")
+def get_account_boards(account_id: int) -> list[dict[str, Any]]:
+    """Return the active boards belonging to a Pinterest account."""
+    try:
+        return fetch_boards_by_account(account_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch boards: {exc}",
         ) from exc
 
 

@@ -93,6 +93,34 @@ def fetch_active_boards() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def fetch_active_boards_with_accounts() -> list[dict[str, Any]]:
+    """
+    Return every active board joined with its account's display name.
+
+    Boards expose both the Atlas ``board_id`` and, when available, the
+    real Pinterest board ID (``pinterest_board_id``) so the mapping UI
+    can reference boards by their Pinterest identity.
+    """
+
+    query = """
+    SELECT
+        pb.*,
+        pa.account_name,
+        pa.username,
+        pa.is_seed
+    FROM pinterest_boards pb
+    JOIN pinterest_accounts pa
+        ON pa.account_id = pb.account_id
+    WHERE pb.status = 'ACTIVE'
+    ORDER BY pa.account_name, pb.board_name
+    """
+
+    with get_connection() as connection:
+        rows = connection.execute(query).fetchall()
+
+    return [dict(row) for row in rows]
+
+
 def fetch_board(
     board_id: int,
 ) -> dict[str, Any] | None:
